@@ -75,6 +75,10 @@ export function lineCost(line: CostLine, yieldQty: number, info: PriceInfo | und
   if (line.kind === "manual") {
     return { cost: (Number(line.manualCost) || 0) * multiplier, packages: null, warning: null, severe: false };
   }
+  // Linha ainda sem item escolhido: não conta nem gera aviso.
+  if ((line.kind === "item" && !line.itemId) || (line.kind === "immediate" && !line.immediateItemId)) {
+    return { cost: 0, packages: null, warning: null, severe: false };
+  }
   if (!info) return { cost: 0, packages: null, warning: "Item não encontrado.", severe: true };
   const qty = (Number(line.quantity) || 0) * multiplier;
   const base = BASE[line.unit] || BASE.emb;
@@ -145,3 +149,33 @@ export function productCost(
 
 export const priceKey = (line: Pick<CostLine, "kind" | "itemId" | "immediateItemId">) =>
   line.kind === "item" ? `i${line.itemId}` : line.kind === "immediate" ? `m${line.immediateItemId}` : "";
+
+/* ---------- Etapas de produção (para a agenda) ---------- */
+
+export type Stage = {
+  name: string;
+  day: number; // dia da produção: 1 = primeiro dia
+  minutes: number; // tempo de UMA receita
+  fixed: boolean; // true = não aumenta com o número de receitas
+};
+
+export function stageSummary(stages: Stage[]) {
+  const byDay = new Map<number, number>();
+  stages.forEach((stage) => byDay.set(stage.day, (byDay.get(stage.day) || 0) + stage.minutes));
+  const days = Array.from(byDay.entries())
+    .sort((a, b) => a[0] - b[0])
+    .map(([day, minutes]) => ({ day, minutes }));
+  return {
+    totalMinutes: stages.reduce((sum, stage) => sum + stage.minutes, 0),
+    workDays: days.length, // dias com trabalho
+    span: days.length ? days[days.length - 1].day - days[0].day + 1 : 0, // do primeiro ao último dia
+    days,
+  };
+}
+
+export function hoursText(minutes: number) {
+  const h = Math.floor(minutes / 60);
+  const m = Math.round(minutes % 60);
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${String(m).padStart(2, "0")}` : `${h} h`;
+}

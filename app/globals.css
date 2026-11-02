@@ -1440,6 +1440,34 @@ fieldset {
   grid-template-columns: 120px minmax(0, 1fr) 160px 92px 36px;
 }
 
+.stage-line {
+  grid-template-columns: 110px minmax(0, 1fr) 110px auto 36px;
+}
+
+.stage-line .save-standard {
+  height: 38px;
+  white-space: nowrap;
+}
+
+.stage-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.stage-timeline span {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  font-size: 0.8rem;
+  color: var(--text-2);
+}
+
+.stage-timeline strong {
+  color: var(--text);
+}
+
 .recipe-extra {
   display: flex;
   flex-wrap: wrap;
@@ -1560,5 +1588,9 @@ fieldset {
   .recipe-line .field.item-field,
   .recipe-line .recipe-extra {
     grid-column: 1 / -1;
+  }
+
+  .stage-line {
+    grid-template-columns: 96px minmax(0, 1fr) 90px;
   }
 }

@@ -5,9 +5,11 @@ import { saveProductAction } from "@/app/actions";
 import { ItemPicker, type PickerOption } from "@/components/client-ui";
 import { Icon } from "@/components/ui";
 import {
+  hoursText,
   LINE_UNITS,
   priceKey,
   productCost,
+  stageSummary,
   type CostLine,
   type LineKind,
   type LineUnit,
@@ -26,6 +28,8 @@ type EditorLine = {
   perUnit: boolean;
   manualCost: string;
 };
+
+type EditorStage = { key: string; name: string; day: string; hours: string; fixed: boolean };
 
 let nextKey = 1;
 const newKey = () => `l${nextKey++}`;
@@ -99,7 +103,19 @@ export function RecipeEditor({
   const [salePrice, setSalePrice] = useState(product?.salePrice != null ? String(product.salePrice) : "");
   const [targetMargin, setTargetMargin] = useState(product?.targetMargin != null ? String(Math.round(product.targetMargin * 1000) / 10) : "");
   const [indirect, setIndirect] = useState(product?.indirectPct != null ? String(Math.round(product.indirectPct * 1000) / 10) : "");
-  const [prepHours, setPrepHours] = useState(product?.prepMinutes != null ? String(Math.round((product.prepMinutes / 60) * 100) / 100) : "");
+  const [stages, setStages] = useState<EditorStage[]>(() =>
+    product?.stages.length
+      ? product.stages.map((stage) => ({
+          key: newKey(),
+          name: stage.name,
+          day: String(stage.day),
+          hours: String(Math.round((stage.minutes / 60) * 100) / 100),
+          fixed: stage.fixed,
+        }))
+      : product?.prepMinutes
+        ? [{ key: newKey(), name: "Produção", day: "1", hours: String(Math.round((product.prepMinutes / 60) * 100) / 100), fixed: false }]
+        : [],
+  );
   const [notes, setNotes] = useState(product?.notes || "");
   const [lines, setLines] = useState<EditorLine[]>(() =>
     product?.lines.length
@@ -162,6 +178,20 @@ export function RecipeEditor({
     .sort((a, b) => b.cost - a.cost)
     .slice(0, 3);
 
+  const stageRows = stages
+    .map((stage) => ({
+      name: stage.name.trim(),
+      day: Math.min(Math.max(Math.round(Number(stage.day) || 1), 1), 60),
+      minutes: Math.round((Number(toNumber(stage.hours)) || 0) * 60),
+      fixed: stage.fixed,
+    }))
+    .filter((stage) => stage.name || stage.minutes > 0);
+  const timing = stageSummary(stageRows.filter((stage) => stage.minutes > 0));
+
+  function updateStage(key: string, changes: Partial<EditorStage>) {
+    setStages((current) => current.map((stage) => (stage.key === key ? { ...stage, ...changes } : stage)));
+  }
+
   const payload = JSON.stringify({
     id: product?.id,
     name,
@@ -171,9 +201,9 @@ export function RecipeEditor({
     salePrice: sale,
     targetMargin: marginTarget,
     indirectPct: indirect.trim() === "" ? null : indirectPct,
-    prepMinutes: prepHours.trim() === "" ? null : Math.round((Number(toNumber(prepHours)) || 0) * 60),
     notes,
     lines: filled,
+    stages: stageRows,
   });
 
   function update(key: string, changes: Partial<EditorLine>) {
@@ -226,10 +256,6 @@ export function RecipeEditor({
               <div className="field">
                 <label htmlFor="p-indirect">Custos indiretos (%)</label>
                 <input id="p-indirect" type="number" min="0" max="500" step="0.1" inputMode="decimal" value={indirect} onChange={(event) => setIndirect(event.target.value)} placeholder={`padrão ${String(Math.round(indirectDefault * 1000) / 10).replace(".", ",")}`} />
-              </div>
-              <div className="field">
-                <label htmlFor="p-time">Tempo para fazer 1 receita (horas)</label>
-                <input id="p-time" type="number" min="0" step="0.25" inputMode="decimal" value={prepHours} onChange={(event) => setPrepHours(event.target.value)} placeholder="Ex.: 2,5 (para a agenda)" />
               </div>
               <div className="field wide">
                 <label htmlFor="p-notes">Observação (opcional)</label>
@@ -287,7 +313,7 @@ export function RecipeEditor({
                           <label>{line.kind === "item" ? `Item ${index + 1}` : `Item de uso imediato ${index + 1}`}</label>
                           <ItemPicker
                             key={`${line.key}-${line.kind}`}
-                            name={`pick-${line.key}`}
+                            name="pick"
                             options={line.kind === "item" ? itemOptions : immediateOptions}
                             defaultId={line.kind === "item" ? line.itemId : line.immediateItemId}
                             placeholder={line.kind === "item" ? "Buscar item do estoque…" : "Buscar item padrão…"}
@@ -348,6 +374,87 @@ export function RecipeEditor({
             </div>
           </div>
         </section>
+
+        <section className="card">
+          <div className="card-head">
+            <div>
+              <h2>Etapas de produção</h2>
+              <p>
+                Tempo de UMA receita, dividido pelos dias em que cada parte é feita (ex.: Dia 1 massa, Dia 2 banhar e
+                rechear, Dia 3 embalar). A agenda vai usar isso para distribuir as horas de cada pedido pelos dias certos.
+              </p>
+            </div>
+          </div>
+          <div className="card-body">
+            {stages.length ? (
+              <div className="lines">
+                {stages.map((stage, index) => (
+                  <div className="line stage-line" key={stage.key}>
+                    <div className="field">
+                      <label>Dia</label>
+                      <select value={stage.day} onChange={(event) => updateStage(stage.key, { day: event.target.value })}>
+                        {Array.from({ length: 10 }, (_, i) => String(i + 1))
+                          .concat(Number(stage.day) > 10 ? [stage.day] : [])
+                          .map((day) => <option key={day} value={day}>Dia {day}</option>)}
+                      </select>
+                    </div>
+                    <div className="field">
+                      <label>Etapa {index + 1}</label>
+                      <input value={stage.name} onChange={(event) => updateStage(stage.key, { name: event.target.value })} placeholder="Ex.: massa, banhar e rechear, embalar" />
+                    </div>
+                    <div className="field">
+                      <label>Horas</label>
+                      <input type="number" min="0" step="0.25" inputMode="decimal" value={stage.hours} onChange={(event) => updateStage(stage.key, { hours: event.target.value })} placeholder="Ex.: 2,5" />
+                    </div>
+                    <label className="save-standard" title="Ex.: montar a bancada ou limpar: leva o mesmo tempo para 1 ou 4 receitas">
+                      <input type="checkbox" checked={stage.fixed} onChange={(event) => updateStage(stage.key, { fixed: event.target.checked })} />
+                      tempo fixo
+                    </label>
+                    <button
+                      className="btn btn-ghost remove"
+                      type="button"
+                      title="Remover etapa"
+                      aria-label={`Remover etapa ${index + 1}`}
+                      onClick={() => setStages((current) => current.filter((row) => row.key !== stage.key))}
+                    >
+                      <Icon name="x" size={16} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="muted" style={{ margin: 0 }}>Nenhuma etapa ainda. Ex.: Dia 1 · Massa · 2 h.</p>
+            )}
+            <div className="form-actions" style={{ marginTop: 12, justifyContent: "space-between" }}>
+              <button
+                className="btn"
+                type="button"
+                onClick={() =>
+                  setStages((current) => [
+                    ...current,
+                    { key: newKey(), name: "", day: current.length ? String(Number(current[current.length - 1].day) + 1) : "1", hours: "", fixed: false },
+                  ])
+                }
+              >
+                <Icon name="plus" /> Etapa
+              </button>
+              {timing.days.length ? (
+                <div className="stage-timeline" aria-label="Resumo das etapas por dia">
+                  {timing.days.map((day) => (
+                    <span key={day.day}>
+                      <strong>Dia {day.day}</strong> {hoursText(day.minutes)}
+                    </span>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+            <p className="muted" style={{ marginBottom: 0 }}>
+              &quot;Tempo fixo&quot;: não aumenta com a quantidade (ex.: montar a bancada). Sem marcar, o tempo é
+              multiplicado pelo número de receitas do pedido. Pule um dia (Dia 1 e Dia 3) quando precisar esperar
+              secar ou descansar.
+            </p>
+          </div>
+        </section>
       </div>
 
       <aside className="recipe-side">
@@ -382,6 +489,19 @@ export function RecipeEditor({
                 </div>
               ) : null}
             </div>
+
+            {timing.totalMinutes > 0 ? (
+              <div className="composition">
+                <h3>Tempo de produção</h3>
+                <div className="cost-rows">
+                  <div><span>Por receita</span><strong>{hoursText(timing.totalMinutes)}</strong></div>
+                  <div><span>Dias de trabalho</span><strong>{timing.workDays}{timing.span > timing.workDays ? ` (em ${timing.span} dias)` : ""}</strong></div>
+                  {yieldNumber > 0 ? (
+                    <div><span>Por {yieldUnit.replace(/s$/, "") || "unidade"}</span><strong>{hoursText(timing.totalMinutes / yieldNumber)}</strong></div>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
 
             {cost.direct > 0 ? (
               <div className="composition">

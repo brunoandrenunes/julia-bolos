@@ -26,6 +26,7 @@ const TABLES = [
   "purchase_items",
   "products",
   "product_lines",
+  "product_stages",
 ];
 
 // Backup completo em Excel: uma aba por tabela, com todas as colunas e os números (ids)

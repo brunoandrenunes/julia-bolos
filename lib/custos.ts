@@ -9,6 +9,7 @@ import {
   type LineUnit,
   type PriceInfo,
   type ProductCost,
+  type Stage,
 } from "@/lib/custos-calc";
 
 /* ===================================================================
@@ -38,6 +39,7 @@ export type ProductRecord = {
   isActive: boolean;
   updatedAt: string;
   lines: ProductLineRecord[];
+  stages: Stage[];
 };
 
 export type PriceBook = Record<string, PriceInfo>;
@@ -106,7 +108,11 @@ async function loadIndirectDefault(db: Db) {
   return Number.isFinite(value) && value >= 0 ? value : 0.1;
 }
 
-function mapProduct(row: Record<string, unknown>, lines: ProductLineRecord[]): ProductRecord {
+function mapStage(row: Record<string, unknown>): Stage {
+  return { name: String(row.name), day: num(row.day_number) || 1, minutes: num(row.minutes), fixed: num(row.fixed_time) === 1 };
+}
+
+function mapProduct(row: Record<string, unknown>, lines: ProductLineRecord[], stages: Stage[]): ProductRecord {
   return {
     id: num(row.id),
     name: String(row.name),
@@ -121,6 +127,7 @@ function mapProduct(row: Record<string, unknown>, lines: ProductLineRecord[]): P
     isActive: num(row.is_active) === 1,
     updatedAt: String(row.updated_at || ""),
     lines,
+    stages,
   };
 }
 
@@ -153,9 +160,10 @@ export function costOf(product: ProductRecord, book: PriceBook, indirectDefault:
 
 export async function getCostsOverview() {
   return withDatabase(async (db) => {
-    const [products, lines, book, indirectDefault] = await Promise.all([
+    const [products, lines, stages, book, indirectDefault] = await Promise.all([
       queryAll(db, "SELECT * FROM products ORDER BY is_active DESC, lower(coalesce(category, '')), lower(name)"),
       queryAll(db, "SELECT * FROM product_lines ORDER BY product_id, position, id"),
+      queryAll(db, "SELECT * FROM product_stages ORDER BY product_id, day_number, position, id"),
       loadPriceBook(db),
       loadIndirectDefault(db),
     ]);
@@ -165,8 +173,14 @@ export async function getCostsOverview() {
       if (!byProduct.has(id)) byProduct.set(id, []);
       byProduct.get(id)!.push(mapLine(row));
     });
+    const stagesByProduct = new Map<number, Stage[]>();
+    stages.forEach((row) => {
+      const id = num(row.product_id);
+      if (!stagesByProduct.has(id)) stagesByProduct.set(id, []);
+      stagesByProduct.get(id)!.push(mapStage(row));
+    });
     const rows = products.map((row) => {
-      const product = mapProduct(row, byProduct.get(num(row.id)) || []);
+      const product = mapProduct(row, byProduct.get(num(row.id)) || [], stagesByProduct.get(num(row.id)) || []);
       return { product, cost: costOf(product, book, indirectDefault) };
     });
     return { rows, indirectDefault };
@@ -192,7 +206,8 @@ export async function getCostEditorData(productId: number) {
       const row = await queryOne(db, "SELECT * FROM products WHERE id = ?", [productId]);
       if (row) {
         const lines = await queryAll(db, "SELECT * FROM product_lines WHERE product_id = ? ORDER BY position, id", [productId]);
-        product = mapProduct(row, lines.map(mapLine));
+        const stages = await queryAll(db, "SELECT * FROM product_stages WHERE product_id = ? ORDER BY day_number, position, id", [productId]);
+        product = mapProduct(row, lines.map(mapLine), stages.map(mapStage));
       }
     }
     const used = new Set((product?.lines || []).map((line) => priceKey(line)));
@@ -223,6 +238,7 @@ export type ProductInput = {
   prepMinutes?: number | null;
   notes?: string | null;
   lines: CostLine[];
+  stages?: Stage[];
 };
 
 const UNITS: LineUnit[] = ["g", "kg", "ml", "l", "un", "emb"];
@@ -237,6 +253,13 @@ export async function saveProduct(input: ProductInput) {
     }
     if (input.indirectPct != null && !(input.indirectPct >= 0 && input.indirectPct <= 5)) {
       throw new Error("O percentual de custos indiretos deve ficar entre 0% e 500%.");
+    }
+    const stages = input.stages || [];
+    for (const [index, stage] of stages.entries()) {
+      const label = `Etapa ${index + 1}`;
+      if (!stage.name?.trim()) throw new Error(`${label}: informe o nome (ex.: massa, rechear, embalar).`);
+      if (!(Number.isInteger(stage.day) && stage.day >= 1 && stage.day <= 60)) throw new Error(`${label}: o dia deve ser de 1 a 60.`);
+      if (!(stage.minutes > 0)) throw new Error(`${label}: informe o tempo.`);
     }
     for (const [index, line] of input.lines.entries()) {
       const label = `Linha ${index + 1}`;
@@ -268,7 +291,7 @@ export async function saveProduct(input: ProductInput) {
       input.salePrice ?? null,
       input.targetMargin ?? null,
       input.indirectPct ?? null,
-      input.prepMinutes ?? null,
+      stages.length ? stages.reduce((sum, stage) => sum + Math.round(stage.minutes), 0) : null,
       input.notes?.trim() || null,
     ];
     let id = input.id || 0;
@@ -282,6 +305,7 @@ export async function saveProduct(input: ProductInput) {
       );
       if (!updated.length) throw new Error("Produto não encontrado.");
       await run(db, "DELETE FROM product_lines WHERE product_id = ?", [id]);
+      await run(db, "DELETE FROM product_stages WHERE product_id = ?", [id]);
     } else {
       const inserted = await run(
         db,
@@ -311,6 +335,13 @@ export async function saveProduct(input: ProductInput) {
         ],
       );
     }
+    for (const [position, stage] of stages.entries()) {
+      await run(
+        db,
+        "INSERT INTO product_stages (product_id, position, name, day_number, minutes, fixed_time) VALUES (?, ?, ?, ?, ?, ?)",
+        [id, position, stage.name.trim(), stage.day, Math.round(stage.minutes), stage.fixed ? 1 : 0],
+      );
+    }
     return id;
   });
 }
@@ -336,6 +367,12 @@ export async function duplicateProduct(productId: number) {
       `INSERT INTO product_lines (product_id, position, kind, item_id, immediate_item_id, description, quantity, unit, per_unit, manual_cost)
        SELECT ?, position, kind, item_id, immediate_item_id, description, quantity, unit, per_unit, manual_cost
        FROM product_lines WHERE product_id = ?`,
+      [id, productId],
+    );
+    await run(
+      db,
+      `INSERT INTO product_stages (product_id, position, name, day_number, minutes, fixed_time)
+       SELECT ?, position, name, day_number, minutes, fixed_time FROM product_stages WHERE product_id = ?`,
       [id, productId],
     );
     return id;

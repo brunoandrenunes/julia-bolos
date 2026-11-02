@@ -8,6 +8,7 @@ import {
 import { Alert, Badge, Card, Empty, Flash, Icon, PageHead, Stat } from "@/components/ui";
 import { getCostEditorData, getCostsOverview } from "@/lib/custos";
 import type { SearchParams } from "@/lib/types";
+import { hoursText, stageSummary } from "@/lib/custos-calc";
 import { currency, formatDate, percent } from "@/lib/utils";
 import { paramText } from "../_comum";
 import { RecipeEditor } from "./recipe-editor";
@@ -107,6 +108,7 @@ export default async function CustosPage({ searchParams }: PageProps) {
                 <tr>
                   <th>Produto</th>
                   <th className="num">Rende</th>
+                  <th className="num">Tempo por receita</th>
                   <th className="num">Custo da receita</th>
                   <th className="num">Custo por unidade</th>
                   <th className="num">Preço de venda</th>
@@ -128,6 +130,18 @@ export default async function CustosPage({ searchParams }: PageProps) {
                         </span>
                       </td>
                       <td className="num">{new Intl.NumberFormat("pt-BR").format(product.yieldQty)} {product.yieldUnit}</td>
+                      <td className="num">
+                        {(() => {
+                          const timing = stageSummary(product.stages);
+                          if (!timing.totalMinutes) return "—";
+                          return (
+                            <>
+                              {hoursText(timing.totalMinutes)}
+                              <span className="sub">{timing.workDays === 1 ? "1 dia" : `${timing.workDays} dias`}</span>
+                            </>
+                          );
+                        })()}
+                      </td>
                       <td className="num">{currency(cost.total)}</td>
                       <td className="num"><strong>{currency(cost.perUnit)}</strong></td>
                       <td className="num">{product.salePrice !== null ? currency(product.salePrice) : "—"}</td>
