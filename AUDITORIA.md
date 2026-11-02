@@ -52,3 +52,10 @@ Base analisada: cópia do banco de 01/11/2026 22:33 (backup `data/backups/bakery
 3. **Parâmetros de reposição** só para os ~25 itens que somam 90% das compras (perecibilidade, validade, mínimo, alvo).
 4. **Lista inteligente de compras** (saldo, consumo médio, cobertura em dias, urgência, confiança).
 5. "Vale a pena?" e custo dos bolos depois que a base estiver confiável.
+
+## 6. Situação em 02/11/2026 (fim do dia)
+
+- Itens 1 e 2 do plano concluídos: sistema na web (julia-bolos.vercel.app) e telas reorganizadas.
+- Resolvido da seção 3: abre no mês atual; arquivados fora da tela principal; entrada de estoque só por Compras; busca nas listas de itens e fornecedores; textos de desenvolvimento removidos; telas em abas com formulários recolhidos; aviso ao fechar mês sem contagem.
+- Pendente da seção 3: itens duplicados por embalagem (decidir com o Bruno quais unificar) e mínimos de estoque reais.
+- Próximo: parâmetros de reposição (item 3) e lista inteligente de compras (item 4).

@@ -18,7 +18,8 @@ Sistema web do negócio: estoque, compras por nota, financeiro, fechamento mensa
 ## Estrutura
 
 ```text
-app/(sistema)/   telas internas (Dashboard, Estoque, Compras, Movimentações, Financeiro, Relatórios)
+app/(sistema)/   telas internas: Painel, Compras, Estoque, Financeiro, Relatórios (abas via ?aba=)
+components/ui.tsx, client-ui.tsx, charts.tsx  peças visuais (cartões, abas, busca de itens, gráficos)
 app/login/       login com senha + autenticador
 app/api/         exportação CSV e backup em Excel
 lib/data.ts      cálculos (custo médio, CMV, saldos, DRE) e gravações
@@ -41,5 +42,7 @@ scripts/importar-sqlite.mjs  carga do banco do sistema antigo (usada na migraç�
 ## Desenvolvimento (para o Claude)
 
 - `npm run dev` abre em `http://localhost:3100`. Configuração em `.env.local` (fora do GitHub).
+- No modo de desenvolvimento o sistema usa a **cópia de teste** (schema `app_teste`, papel `bolos_teste`, variável `DATABASE_URL_TESTE`). Para atualizar a cópia com os dados reais: `call app_teste.recriar();` no SQL do Supabase.
+- O site publicado conecta pelo pooler em modo transação (porta 6543) com o pacote `pg`.
 - `TESTE_LOCAL_SEM_LOGIN=1` no `.env.local` dispensa o login só no modo de desenvolvimento local.
 - Cada envio ao GitHub publica o site na Vercel.
