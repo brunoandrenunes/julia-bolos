@@ -43,6 +43,8 @@ export type ItemRecord = {
   low_stock_threshold: number;
   notes: string | null;
   is_active: number;
+  content_qty: number | null;
+  content_unit: "g" | "ml" | "un" | null;
 };
 
 export type ItemMetrics = {

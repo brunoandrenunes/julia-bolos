@@ -21,6 +21,7 @@ import {
   setPeriodClosed,
 } from "@/lib/data";
 import { applyReplenishment, registerPhysicalCount } from "@/lib/analise";
+import { duplicateProduct, saveProduct, setIndirectDefault, setProductActive, type ProductInput } from "@/lib/custos";
 import { linkDescriptions, saveImmediateItem, setImmediateItemActive, unlinkImmediateItem } from "@/lib/uso-imediato";
 import { buildPeriodHref, clampNumber, cleanText, currentYearMonth } from "@/lib/utils";
 
@@ -74,6 +75,8 @@ export async function saveItemAction(formData: FormData) {
       pricePerKg: formData.get("pricePerKg") ? clampNumber(formData.get("pricePerKg"), 0) : null,
       lowStockThreshold: clampNumber(formData.get("lowStockThreshold"), 0),
       notes: cleanText(formData.get("notes")),
+      contentQty: formData.get("contentQty") ? clampNumber(formData.get("contentQty"), 0) : null,
+      contentUnit: cleanText(formData.get("contentUnit")) || null,
     }),
   );
   done(formData, "/estoque", id ? "Item atualizado." : "Item cadastrado.");
@@ -341,4 +344,65 @@ export async function unlinkImmediateItemAction(formData: FormData) {
     count = await unlinkImmediateItem(Number(formData.get("id")));
   });
   done(formData, "/reposicao", `${count} lançamento(s) desvinculado(s). Eles voltam para a lista "sem item padrão".`);
+}
+
+/* ---------- Custos dos produtos (fichas técnicas) ---------- */
+
+function custosHref(extra: Record<string, string | number>) {
+  const query = new URLSearchParams(Object.entries(extra).map(([key, value]) => [key, String(value)]));
+  return `/custos?${query.toString()}`;
+}
+
+async function runCostMutation<T>(back: Record<string, string | number>, mutation: () => Promise<T>) {
+  try {
+    return await mutation();
+  } catch (error) {
+    unstable_rethrow(error);
+    const raw = error instanceof Error ? error.message : "";
+    const message = /duplicate key|unique/i.test(raw)
+      ? "Já existe um produto com esse nome."
+      : raw || "Não foi possível concluir a operação.";
+    redirect(custosHref({ ...back, error: message }));
+  }
+}
+
+function costDone(extra: Record<string, string | number>): never {
+  revalidateAll();
+  redirect(custosHref(extra));
+}
+
+export async function saveProductAction(formData: FormData) {
+  let input: ProductInput;
+  try {
+    input = JSON.parse(String(formData.get("payload") || "{}")) as ProductInput;
+  } catch {
+    redirect(custosHref({ error: "Não foi possível ler a ficha. Tente de novo." }));
+  }
+  const back = { produto: input.id || "novo" };
+  const id = await runCostMutation(back, () => saveProduct(input));
+  costDone({ produto: id, notice: input.id ? "Ficha salva. Custos recalculados." : "Produto cadastrado." });
+}
+
+export async function duplicateProductAction(formData: FormData) {
+  const source = Number(formData.get("id"));
+  const id = await runCostMutation({ produto: source }, () => duplicateProduct(source));
+  costDone({ produto: id, notice: "Cópia criada. Ajuste o nome e o que for diferente." });
+}
+
+export async function archiveProductAction(formData: FormData) {
+  const id = Number(formData.get("id"));
+  await runCostMutation({ produto: id }, () => setProductActive(id, false));
+  costDone({ notice: "Produto arquivado." });
+}
+
+export async function reactivateProductAction(formData: FormData) {
+  const id = Number(formData.get("id"));
+  await runCostMutation({ produto: id }, () => setProductActive(id, true));
+  costDone({ produto: id, notice: "Produto reativado." });
+}
+
+export async function saveIndirectDefaultAction(formData: FormData) {
+  const pct = clampNumber(formData.get("indirectPct"), -1) / 100;
+  await runCostMutation({}, () => setIndirectDefault(pct));
+  costDone({ notice: "Percentual padrão de custos indiretos atualizado." });
 }

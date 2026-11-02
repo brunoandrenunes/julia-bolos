@@ -877,6 +877,8 @@ export async function getItems(options?: { status?: "active" | "archived" | "all
           items.low_stock_threshold,
         items.notes,
         items.is_active,
+        items.content_qty,
+        items.content_unit,
         item_categories.name AS category_name
       FROM items
       LEFT JOIN item_categories ON item_categories.id = items.category_id
@@ -900,6 +902,8 @@ export async function getItems(options?: { status?: "active" | "archived" | "all
       low_stock_threshold: numeric(row.low_stock_threshold),
       notes: row.notes == null ? null : String(row.notes),
       is_active: numeric(row.is_active),
+      content_qty: row.content_qty == null ? null : numeric(row.content_qty),
+      content_unit: row.content_unit == null ? null : (String(row.content_unit) as ItemRecord["content_unit"]),
     })),
   );
 }
@@ -1540,7 +1544,9 @@ export async function getEditBundle(params?: SearchParams): Promise<EditBundle> 
               items.price_per_kg,
               items.low_stock_threshold,
               items.notes,
-              items.is_active
+              items.is_active,
+              items.content_qty,
+              items.content_unit
             FROM items
             LEFT JOIN item_categories ON item_categories.id = items.category_id
             WHERE items.id = ?
@@ -1963,9 +1969,14 @@ export async function createOrUpdateItem(input: {
   pricePerKg?: number | null;
   lowStockThreshold?: number;
   notes?: string;
+  contentQty?: number | null;
+  contentUnit?: string | null;
 }) {
   return withTransaction(async (db) => {
     const categoryName = input.categoryName || "Outros";
+    // Conteúdo da embalagem: só vale com quantidade e unidade juntas.
+    const contentUnit = input.contentQty && input.contentQty > 0 && ["g", "ml", "un"].includes(input.contentUnit || "") ? input.contentUnit : null;
+    const contentQty = contentUnit ? input.contentQty : null;
     await run(db, "INSERT INTO item_categories (name) VALUES (?) ON CONFLICT (name) DO NOTHING", [categoryName]);
     const categoryId = await seedLookupId(db, "item_categories", categoryName);
     if (input.id) {
@@ -1973,7 +1984,8 @@ export async function createOrUpdateItem(input: {
         db,
         `
           UPDATE items
-          SET name = ?, category_id = ?, unit_size = ?, reference_price = ?, price_per_kg = ?, low_stock_threshold = ?, notes = ?
+          SET name = ?, category_id = ?, unit_size = ?, reference_price = ?, price_per_kg = ?, low_stock_threshold = ?, notes = ?,
+            content_qty = ?, content_unit = ?
           WHERE id = ?
         `,
         [
@@ -1984,6 +1996,8 @@ export async function createOrUpdateItem(input: {
           input.pricePerKg,
           input.lowStockThreshold || 0,
           input.notes || null,
+          contentQty,
+          contentUnit,
           input.id,
         ],
       );
@@ -1992,8 +2006,9 @@ export async function createOrUpdateItem(input: {
         db,
         `
           INSERT INTO items (
-            name, category_id, unit_size, reference_price, price_per_kg, low_stock_threshold, notes
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            name, category_id, unit_size, reference_price, price_per_kg, low_stock_threshold, notes,
+            content_qty, content_unit
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           input.name,
@@ -2003,6 +2018,8 @@ export async function createOrUpdateItem(input: {
           input.pricePerKg,
           input.lowStockThreshold || 0,
           input.notes || null,
+          contentQty,
+          contentUnit,
         ],
       );
     }

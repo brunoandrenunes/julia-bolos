@@ -20,7 +20,7 @@ Pedido confirmado ──► evento no Google Agenda da Julia
 
 ## Fases
 
-1. **Fichas técnicas e margem por produto**
+1. **Fichas técnicas e margem por produto** — pronto em 02/11/2026 (tela Custos)
    - Conteúdo de cada embalagem (395 g, 1 kg, 30 un). Hoje 57 de 108 itens já têm esse dado; o restante
      pode ser sugerido a partir do nome.
    - Receitas com rendimento e tempo de preparo, e receitas-base (massa, recheio) reaproveitadas em outras.
@@ -40,9 +40,13 @@ Pedido confirmado ──► evento no Google Agenda da Julia
    - Horas de produção por semana comparadas com as horas disponíveis da Julia, com alerta de "fechar a
      agenda" e um teste de "cabe esse pedido?" antes de aceitar.
 
-## Decisões pendentes (Bruno)
+## Decisões do Bruno (02/11/2026)
 
-- Preço do custo: último preço pago (sugestão) ou média das últimas compras.
-- Receita na DRE: caixa (como hoje) ou competência pela entrega, com o sinal como adiantamento de cliente.
-- Google Agenda: em qual conta fica a agenda "Encomendas".
-- Login da Julia: com pedidos no dia a dia, talvez valha ela ter um login próprio (com autenticador).
+- **Custo:** sempre o último preço pago.
+- **Receita:** continua por caixa. O que for adiantamento de cliente (sinal) entra numa linha própria
+  ("Adiantamentos"), separada da receita de entregas, mas reconhecida quando recebida. Fazer junto com os pedidos.
+- **Google Agenda:** na conta Google da Julia.
+- **Login da Julia:** ela terá login próprio (e-mail + senha + autenticador). Basta criar o usuário dela no
+  Supabase Auth e incluir o e-mail em `DONO_EMAIL` (aceita lista). Fazer junto com os pedidos.
+- **Ordem:** primeiro o Bruno e a Julia cadastram e precificam os produtos (fase 1, pronta em 02/11/2026,
+  tela Custos). Depois vêm os pedidos e a agenda.

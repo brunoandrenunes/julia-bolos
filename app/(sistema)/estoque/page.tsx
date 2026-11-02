@@ -23,6 +23,7 @@ import {
 import type { SearchParams } from "@/lib/types";
 import { currency, formatDate, isoToday, quantity } from "@/lib/utils";
 import { getCountSheet } from "@/lib/analise";
+import { contentFromName } from "@/lib/custos-calc";
 import { CountSheet } from "./count-sheet";
 import { PeriodPicker, paramText, tabHref } from "../_comum";
 
@@ -80,6 +81,7 @@ export default async function EstoquePage({ searchParams }: PageProps) {
   const usage = edit.inventoryUsage;
   const entry = edit.inventoryEntry;
   const editItem = edit.item;
+  const suggestedContent = editItem ? contentFromName(editItem.name) : null;
 
   return (
     <>
@@ -416,6 +418,32 @@ export default async function EstoquePage({ searchParams }: PageProps) {
                 <div className="field">
                   <label htmlFor="i-min">Estoque mínimo</label>
                   <input id="i-min" name="lowStockThreshold" type="number" step="0.01" min="0" defaultValue={editItem?.low_stock_threshold ?? 0} required />
+                </div>
+                <div className="field">
+                  <label htmlFor="i-content">Conteúdo da embalagem (para as fichas de custo)</label>
+                  <div className="input-pair">
+                    <input
+                      id="i-content"
+                      name="contentQty"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      defaultValue={editItem?.content_qty ?? ""}
+                      placeholder={suggestedContent ? String(suggestedContent.qty) : "ex.: 395"}
+                    />
+                    <select name="contentUnit" aria-label="Unidade do conteúdo" defaultValue={editItem?.content_unit ?? suggestedContent?.unit ?? "g"}>
+                      <option value="g">g</option>
+                      <option value="ml">ml</option>
+                      <option value="un">unidades</option>
+                    </select>
+                  </div>
+                  <span className="muted" style={{ fontSize: "0.76rem" }}>
+                    {editItem?.content_qty
+                      ? "Salvo no cadastro."
+                      : suggestedContent
+                        ? `Vazio: o sistema usa ${suggestedContent.qty} ${suggestedContent.unit}, lido do nome.`
+                        : "Vazio: conta como 1 unidade por embalagem."}
+                  </span>
                 </div>
                 <div className="field">
                   <label htmlFor="i-size">Tamanho da unidade (opcional)</label>

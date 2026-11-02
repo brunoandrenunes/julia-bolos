@@ -1407,3 +1407,158 @@ fieldset {
   flex: 1;
   min-width: 0;
 }
+
+/* ---------- Custos dos produtos (ficha técnica) ---------- */
+
+.recipe {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.recipe-main {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.recipe-side {
+  position: sticky;
+  top: 16px;
+}
+
+.input-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 6px;
+}
+
+.recipe-line,
+.recipe-line.immediate,
+.recipe-line.manual {
+  grid-template-columns: 120px minmax(0, 1fr) 160px 92px 36px;
+}
+
+.recipe-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 16px;
+}
+
+.recipe-extra .save-standard {
+  white-space: nowrap;
+}
+
+.line-cost {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: flex-end;
+  height: 100%;
+  font-variant-numeric: tabular-nums;
+}
+
+.line-cost .muted {
+  font-size: 0.76rem;
+}
+
+.line-cost strong {
+  line-height: 38px;
+}
+
+.line-note {
+  font-size: 0.78rem;
+  color: var(--text-3);
+}
+
+.line-note.warn {
+  color: var(--warning);
+}
+
+.cost-rows {
+  display: grid;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cost-rows > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-2);
+}
+
+.cost-rows strong {
+  color: var(--text);
+}
+
+.cost-rows strong.pos {
+  color: var(--positive);
+}
+
+.cost-rows strong.neg {
+  color: var(--negative);
+}
+
+.cost-rows .total {
+  border-top: 1px solid var(--border);
+  padding-top: 8px;
+}
+
+.cost-rows .hero {
+  display: grid;
+  gap: 2px;
+  padding: 12px;
+  margin: 4px 0;
+  border-radius: var(--radius-sm);
+  background: var(--brand-soft);
+  color: var(--brand-text);
+}
+
+.cost-rows .hero strong {
+  font-size: 1.6rem;
+  color: var(--text);
+}
+
+.cost-rows .hero small {
+  color: var(--text-2);
+}
+
+.cost-rows .suggest {
+  border-top: 1px dashed var(--border-strong);
+  padding-top: 8px;
+}
+
+.composition {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.composition h3 {
+  margin: 0 0 8px;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 1100px) {
+  .recipe {
+    grid-template-columns: 1fr;
+  }
+
+  .recipe-side {
+    position: static;
+  }
+
+  .recipe-line,
+  .recipe-line.immediate,
+  .recipe-line.manual {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .recipe-line .field.item-field,
+  .recipe-line .recipe-extra {
+    grid-column: 1 / -1;
+  }
+}

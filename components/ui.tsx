@@ -18,7 +18,8 @@ type IconName =
   | "trash"
   | "x"
   | "list"
-  | "copy";
+  | "copy"
+  | "tag";
 
 const ICON_PATHS: Record<IconName, string> = {
   home: "M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9",
@@ -36,6 +37,7 @@ const ICON_PATHS: Record<IconName, string> = {
   x: "M18 6 6 18M6 6l12 12",
   list: "M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01",
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  tag: "M3 12V4h8l10 10-8 8L3 12ZM7.5 8h.01",
 };
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
