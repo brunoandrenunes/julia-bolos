@@ -93,3 +93,8 @@ export function buildReportExportHref(scope: ReportScope, year: number, month: n
   });
   return `/api/export?${params.toString()}`;
 }
+
+// Compara sem acento e sem maiúsculas ("fecula" acha "Fécula").
+export function normalizeText(value: string) {
+  return value.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().trim();
+}

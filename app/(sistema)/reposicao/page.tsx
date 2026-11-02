@@ -4,10 +4,12 @@ import { applyReplenishmentAction } from "@/app/actions";
 import { CopyButton } from "@/components/client-ui";
 import { Alert, Badge, Card, Empty, Flash, PageHead, PeriodHidden, Stat, Tabs } from "@/components/ui";
 import { getReplenishment, type ReplenishmentRow } from "@/lib/analise";
-import { getPeriodContext } from "@/lib/data";
+import { getPeriodContext, getPurchaseMovementTypes } from "@/lib/data";
+import { getImmediateTracking } from "@/lib/uso-imediato";
 import type { SearchParams } from "@/lib/types";
 import { buildPeriodHref, currency, formatDate, quantity } from "@/lib/utils";
 import { PeriodPicker, paramText } from "../_comum";
+import { UsoImediatoTab } from "./uso-imediato";
 
 type PageProps = { searchParams?: Promise<SearchParams> };
 
@@ -33,10 +35,12 @@ export default async function ReposicaoPage({ searchParams }: PageProps) {
   const cycle = CYCLES.includes(Number(paramText(params, "ciclo"))) ? Number(paramText(params, "ciclo")) : 14;
   const safetyKey = (paramText(params, "seguranca") in SAFETY ? paramText(params, "seguranca") : "90") as keyof typeof SAFETY;
   const requested = paramText(params, "aba");
-  const tab = ["lista", "parametros", "excesso", "metodo"].includes(requested) ? requested : "lista";
-  const [{ selected, options }, data] = await Promise.all([
+  const tab = ["lista", "parametros", "excesso", "imediato", "metodo"].includes(requested) ? requested : "lista";
+  const [{ selected, options }, data, immediate, immediateTypes] = await Promise.all([
     getPeriodContext(params),
     getReplenishment(params, { cycleDays: cycle, leadDays: LEAD_DAYS, z: SAFETY[safetyKey] }),
+    tab === "imediato" ? getImmediateTracking(params) : null,
+    tab === "imediato" ? getPurchaseMovementTypes() : [],
   ]);
 
   const toBuy = data.rows.filter((row) => row.status === "comprar").sort((a, b) => (a.coverageDays ?? 0) - (b.coverageDays ?? 0));
@@ -76,7 +80,7 @@ export default async function ReposicaoPage({ searchParams }: PageProps) {
 
       <Flash error={paramText(params, "error")} notice={paramText(params, "notice")} />
 
-      {configured === 0 ? (
+      {configured === 0 && tab !== "imediato" ? (
         <Alert
           tone="info"
           title="Mínimos ainda não definidos"
@@ -86,6 +90,7 @@ export default async function ReposicaoPage({ searchParams }: PageProps) {
         </Alert>
       ) : null}
 
+      {tab !== "imediato" ? (
       <form action="/reposicao" className="card filters" style={{ borderRadius: "var(--radius)" }}>
         <PeriodHidden year={selected.year} month={selected.month} aba={tab} />
         <div className="field">
@@ -109,6 +114,7 @@ export default async function ReposicaoPage({ searchParams }: PageProps) {
         </span>
         <button className="btn" type="submit">Recalcular</button>
       </form>
+      ) : null}
 
       <div className="stats">
         <Stat label="Comprar agora" value={String(toBuy.length)} note={toBuy.length ? `≈ ${currency(listCost)}` : "Nada abaixo do mínimo"} />
@@ -123,6 +129,7 @@ export default async function ReposicaoPage({ searchParams }: PageProps) {
           { key: "lista", label: "Lista de compras", count: toBuy.length, href: href("lista") },
           { key: "parametros", label: "Mínimos e alvos", count: withUse.length, href: href("parametros") },
           { key: "excesso", label: "Excesso", count: excess.length, href: href("excesso") },
+          { key: "imediato", label: "Uso imediato", href: href("imediato") },
           { key: "metodo", label: "Como é calculado", href: href("metodo") },
         ]}
       />
@@ -285,6 +292,16 @@ export default async function ReposicaoPage({ searchParams }: PageProps) {
             <Empty>Nenhum item muito acima do necessário.</Empty>
           )}
         </Card>
+      ) : null}
+
+      {tab === "imediato" && immediate ? (
+        <UsoImediatoTab
+          data={immediate}
+          movementTypes={immediateTypes}
+          editId={Number(paramText(params, "editImediato")) || 0}
+          year={selected.year}
+          month={selected.month}
+        />
       ) : null}
 
       {tab === "metodo" ? (

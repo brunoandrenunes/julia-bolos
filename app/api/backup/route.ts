@@ -14,6 +14,7 @@ const TABLES = [
   "item_categories",
   "payment_methods",
   "movement_types",
+  "immediate_items",
   "items",
   "inventory_opening_balances",
   "inventory_entries",

@@ -7,7 +7,7 @@ import {
   saveFinancialTransactionAction,
   saveTransferAction,
 } from "@/app/actions";
-import { ConfirmButton } from "@/components/client-ui";
+import { ConfirmButton, StandardDescriptionField } from "@/components/client-ui";
 import { Alert, Badge, Card, Drawer, Empty, Flash, PageHead, PeriodHidden, Stat, Tabs } from "@/components/ui";
 import {
   getEditBundle,
@@ -20,6 +20,7 @@ import {
   getTransfers,
 } from "@/lib/data";
 import type { SearchParams } from "@/lib/types";
+import { getImmediateItems } from "@/lib/uso-imediato";
 import { currency, formatDate, isoToday } from "@/lib/utils";
 import { PeriodPicker, paramText, tabHref } from "../_comum";
 
@@ -43,7 +44,7 @@ export default async function FinanceiroPage({ searchParams }: PageProps) {
   const requested = paramText(params, "aba");
   const tab = params.editTransferencia ? "transferencias" : params.editLancamento ? "lancamentos" : ["lancamentos", "transferencias", "fechamento"].includes(requested) ? requested : "lancamentos";
   const monthParams = { year: params.year, month: params.month, scope: "month" };
-  const [{ selected, options }, paymentMethods, movementTypes, transactions, transfers, edit, report, usages] = await Promise.all([
+  const [{ selected, options }, paymentMethods, movementTypes, transactions, transfers, edit, report, usages, immediateItems] = await Promise.all([
     getPeriodContext(params),
     getPaymentMethods(),
     getMovementTypes(),
@@ -52,6 +53,7 @@ export default async function FinanceiroPage({ searchParams }: PageProps) {
     getEditBundle(params),
     getReportSnapshot(monthParams),
     getInventoryUsages(monthParams),
+    getImmediateItems(),
   ]);
 
   const s = report.selectedSummary;
@@ -131,7 +133,15 @@ export default async function FinanceiroPage({ searchParams }: PageProps) {
                   </div>
                   <div className="field" style={{ gridColumn: "span 2" }}>
                     <label htmlFor="t-desc">Descrição</label>
-                    <input id="t-desc" name="description" defaultValue={tx?.description || ""} placeholder="Ex.: Recebimentos, Entrega, Mão de obra" required />
+                    <StandardDescriptionField
+                      id="t-desc"
+                      name="description"
+                      defaultValue={tx?.description || ""}
+                      options={immediateItems
+                        .filter((item) => item.isActive)
+                        .map((item) => ({ id: item.id, name: item.name, group: item.typeName }))}
+                      placeholder="Ex.: Recebimentos, Entrega, Mão de obra"
+                    />
                   </div>
                   <div className="field wide">
                     <label htmlFor="t-notes">Observação (opcional)</label>

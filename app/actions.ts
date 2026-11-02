@@ -21,6 +21,7 @@ import {
   setPeriodClosed,
 } from "@/lib/data";
 import { applyReplenishment, registerPhysicalCount } from "@/lib/analise";
+import { linkDescriptions, saveImmediateItem, setImmediateItemActive, unlinkImmediateItem } from "@/lib/uso-imediato";
 import { buildPeriodHref, clampNumber, cleanText, currentYearMonth } from "@/lib/utils";
 
 // Depois de gravar, volta para a mesma tela, mês e aba de onde o formulário veio.
@@ -137,6 +138,7 @@ export async function savePurchaseAction(formData: FormData) {
   const quantities = formData.getAll("lineQuantity");
   const amounts = formData.getAll("lineAmount");
   const movementTypeIds = formData.getAll("lineMovementTypeId");
+  const saveStandard = formData.getAll("lineSaveStandard");
   const id = Number(formData.get("id")) || undefined;
 
   await runPeriodMutation(formData, "/compras", () =>
@@ -155,6 +157,7 @@ export async function savePurchaseAction(formData: FormData) {
         quantity: clampNumber(quantities[index], 0),
         totalAmount: clampNumber(amounts[index], 0),
         movementTypeId: Number(movementTypeIds[index]) || null,
+        saveAsStandard: String(saveStandard[index] || "") === "1",
       })),
     }),
   );
@@ -200,6 +203,7 @@ export async function saveFinancialTransactionAction(formData: FormData) {
       amount: clampNumber(formData.get("amount"), 0),
       itemId: Number(formData.get("itemId")) || null,
       notes: cleanText(formData.get("notes")),
+      saveAsStandard: formData.get("saveStandard") === "1",
     }),
   );
   done(formData, "/financeiro", id ? "Lançamento atualizado." : "Lançamento registrado.");
@@ -289,4 +293,52 @@ export async function applyReplenishmentAction(formData: FormData) {
   }));
   await runPeriodMutation(formData, "/reposicao", () => applyReplenishment(rows));
   done(formData, "/reposicao", `Mínimo e estoque-alvo salvos para ${rows.length} item(ns).`);
+}
+
+/* ---------- Itens padrão de uso imediato (Reposição › Uso imediato) ---------- */
+
+export async function saveImmediateItemAction(formData: FormData) {
+  const id = Number(formData.get("id")) || undefined;
+  await runPeriodMutation(formData, "/reposicao", () =>
+    saveImmediateItem({
+      id,
+      name: cleanText(formData.get("name")),
+      movementTypeId: Number(formData.get("movementTypeId")),
+      unitLabel: cleanText(formData.get("unitLabel")),
+      notes: cleanText(formData.get("notes")),
+    }),
+  );
+  done(formData, "/reposicao", id ? "Item padrão atualizado." : "Item padrão cadastrado.");
+}
+
+export async function archiveImmediateItemAction(formData: FormData) {
+  await runPeriodMutation(formData, "/reposicao", () => setImmediateItemActive(Number(formData.get("id")), false));
+  done(formData, "/reposicao", "Item padrão arquivado. O histórico continua.");
+}
+
+export async function reactivateImmediateItemAction(formData: FormData) {
+  await runPeriodMutation(formData, "/reposicao", () => setImmediateItemActive(Number(formData.get("id")), true));
+  done(formData, "/reposicao", "Item padrão reativado.");
+}
+
+export async function linkDescriptionsAction(formData: FormData) {
+  let linked = 0;
+  const choice = cleanText(formData.get("itemId"));
+  await runPeriodMutation(formData, "/reposicao", async () => {
+    linked = await linkDescriptions({
+      variants: formData.getAll("variant").map(String),
+      typeName: cleanText(formData.get("typeName")),
+      itemId: choice === "novo" ? null : Number(choice) || null,
+      newName: cleanText(formData.get("newName")),
+    });
+  });
+  done(formData, "/reposicao", `${linked} lançamento(s) vinculado(s) ao item padrão.`);
+}
+
+export async function unlinkImmediateItemAction(formData: FormData) {
+  let count = 0;
+  await runPeriodMutation(formData, "/reposicao", async () => {
+    count = await unlinkImmediateItem(Number(formData.get("id")));
+  });
+  done(formData, "/reposicao", `${count} lançamento(s) desvinculado(s). Eles voltam para a lista "sem item padrão".`);
 }

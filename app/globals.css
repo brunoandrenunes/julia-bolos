@@ -988,6 +988,76 @@ fieldset {
   font-size: 0.76rem;
 }
 
+.save-standard {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.76rem;
+  color: var(--text-2);
+  font-weight: 400;
+}
+
+.line-extra {
+  grid-column: 2 / -1;
+  margin-top: -4px;
+}
+
+.save-standard input {
+  width: auto;
+  height: auto;
+}
+
+/* ---------- Busca com lista (produto, fornecedor, item padrão) ---------- */
+
+.combo {
+  position: relative;
+}
+
+.combo-list {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 300px;
+  overflow-y: auto;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(31, 27, 23, 0.12);
+}
+
+.combo-option {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.combo-option.active {
+  background: var(--brand-soft);
+}
+
+.combo-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.combo-group {
+  flex: none;
+  font-size: 0.75rem;
+  color: var(--text-3);
+}
+
 .line .remove {
   height: 38px;
   width: 36px;
@@ -1067,7 +1137,8 @@ fieldset {
   }
 
   .line .field.item-field,
-  .line .field.desc-field {
+  .line .field.desc-field,
+  .line-extra {
     grid-column: 1 / -1;
   }
 }
@@ -1302,4 +1373,37 @@ fieldset {
 
 .insight strong {
   color: var(--text);
+}
+
+/* ---------- Uso imediato: barrinhas mensais e vínculo em linha ---------- */
+
+.minibars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 28px;
+  width: 96px;
+}
+
+.minibars span {
+  flex: 1;
+  min-width: 8px;
+  border-radius: 3px 3px 0 0;
+  background: var(--series-1);
+  opacity: 0.45;
+}
+
+.minibars span.current {
+  opacity: 1;
+}
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.inline-form .field {
+  flex: 1;
+  min-width: 0;
 }

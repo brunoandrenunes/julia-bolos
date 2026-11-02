@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { savePurchaseAction } from "@/app/actions";
-import { ItemPicker } from "@/components/client-ui";
+import { ItemPicker, SuggestInput } from "@/components/client-ui";
 import { Icon } from "@/components/ui";
 import type { ItemRecord, MovementType, PaymentMethod, PurchaseRecord, SupplierRecord } from "@/lib/types";
+import type { ImmediateItem } from "@/lib/uso-imediato";
+import { normalizeText } from "@/lib/utils";
 
 type PurchaseFormProps = {
   year: number;
@@ -16,6 +18,7 @@ type PurchaseFormProps = {
   movementTypes: MovementType[];
   items: ItemRecord[];
   purchase?: PurchaseRecord | null;
+  immediateItems: ImmediateItem[];
 };
 
 type EditableLine = {
@@ -29,6 +32,7 @@ type EditableLine = {
   // Qual valor a pessoa digitou por último: o outro é calculado.
   anchor: "unit" | "total";
   movementTypeId: string;
+  saveStandard: boolean;
 };
 
 let nextLineId = 1;
@@ -44,6 +48,7 @@ function newLine(destination: "inventory" | "financial", movementTypeId?: number
     unitPrice: "",
     anchor: "unit",
     movementTypeId: String(movementTypeId || ""),
+    saveStandard: false,
   };
 }
 
@@ -76,6 +81,7 @@ function initialLines(purchase: PurchaseRecord | null | undefined, movementTypeI
     unitPrice: line.quantity ? String(round(line.total_amount / line.quantity, 4)) : "",
     anchor: "total" as const,
     movementTypeId: String(line.movement_type_id || movementTypeId || ""),
+    saveStandard: false,
   }));
 }
 
@@ -93,6 +99,7 @@ export function PurchaseForm({
   movementTypes,
   items,
   purchase,
+  immediateItems,
 }: PurchaseFormProps) {
   const defaultMovementType = movementTypes.find((type) => type.name === "Insumos")?.id;
   const [lines, setLines] = useState<EditableLine[]>(() => initialLines(purchase, defaultMovementType));
@@ -101,6 +108,12 @@ export function PurchaseForm({
   const invoiceDiff = invoiceTotal === "" ? null : round(Number(invoiceTotal) - total, 2);
   const itemOptions = items.map((item) => ({ id: item.id, name: item.name, group: item.category_name }));
   const supplierOptions = suppliers.map((supplier) => ({ id: supplier.id, name: supplier.name }));
+  const standardOptions = immediateItems.map((item) => ({
+    id: item.id,
+    name: item.name,
+    group: item.unitLabel ? `${item.typeName} · ${item.unitLabel}` : item.typeName,
+  }));
+  const standardNames = new Set(immediateItems.map((item) => normalizeText(item.name)));
 
   function updateLine(key: string, changes: Partial<EditableLine>) {
     setLines((current) => current.map((line) => (line.key === key ? recalc({ ...line, ...changes }) : line)));
@@ -182,6 +195,7 @@ export function PurchaseForm({
                   </div>
                   <input type="hidden" name="lineDescription" value="" />
                   <input type="hidden" name="lineMovementTypeId" value="" />
+                  <input type="hidden" name="lineSaveStandard" value="" />
                 </>
               ) : (
                 <>
@@ -203,13 +217,19 @@ export function PurchaseForm({
                   </div>
                   <div className="field desc-field">
                     <label>Descrição {index + 1}</label>
-                    <input
+                    <SuggestInput
                       name="lineDescription"
                       value={line.description}
-                      onChange={(event) => updateLine(line.key, { description: event.target.value })}
+                      options={standardOptions}
+                      onChange={(description) => updateLine(line.key, { description })}
+                      onPick={(option) => {
+                        const item = immediateItems.find((row) => row.id === option.id);
+                        if (item) updateLine(line.key, { description: item.name, movementTypeId: String(item.movementTypeId) });
+                      }}
                       placeholder="Ex.: morango, topper, entrega"
                       required
                     />
+                    <input type="hidden" name="lineSaveStandard" value={line.saveStandard ? "1" : ""} />
                   </div>
                 </>
               )}
@@ -263,6 +283,22 @@ export function PurchaseForm({
               >
                 <Icon name="x" size={16} />
               </button>
+              {line.destination === "financial" && line.description.trim() ? (
+                standardNames.has(normalizeText(line.description)) ? (
+                  <span className="save-standard line-extra">
+                    <Icon name="check" size={14} /> Item padrão: o gasto entra no acompanhamento da Reposição.
+                  </span>
+                ) : (
+                  <label className="save-standard line-extra">
+                    <input
+                      type="checkbox"
+                      checked={line.saveStandard}
+                      onChange={(event) => updateLine(line.key, { saveStandard: event.target.checked })}
+                    />
+                    Salvar &quot;{line.description.trim()}&quot; como item padrão, para acompanhar gasto e preço
+                  </label>
+                )
+              ) : null}
             </div>
           ))}
         </div>

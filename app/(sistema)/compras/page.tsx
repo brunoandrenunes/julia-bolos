@@ -15,6 +15,7 @@ import {
 } from "@/lib/data";
 import type { SearchParams } from "@/lib/types";
 import { currency, formatDate, isoToday, quantity } from "@/lib/utils";
+import { getImmediateItems } from "@/lib/uso-imediato";
 import { PurchaseForm } from "./purchase-form";
 import { PeriodPicker, paramText, tabHref } from "../_comum";
 
@@ -37,7 +38,7 @@ export default async function ComprasPage({ searchParams }: PageProps) {
   const purchaseId = Number(paramText(params, "editCompra")) || 0;
   const supplierEditId = Number(paramText(params, "editFornecedor")) || 0;
   const requestedTab = paramText(params, "aba");
-  const [{ selected, options }, items, paymentMethods, movementTypes, suppliers, purchases, overview, analysis, purchase] =
+  const [{ selected, options }, items, paymentMethods, movementTypes, suppliers, purchases, overview, analysis, purchase, immediateItems] =
     await Promise.all([
       getPeriodContext(params),
       getItems(),
@@ -48,6 +49,7 @@ export default async function ComprasPage({ searchParams }: PageProps) {
       getPurchaseOverview(params),
       getPurchaseAnalysis(params),
       getPurchaseForEdit(purchaseId),
+      getImmediateItems(),
     ]);
 
   const tab = purchase ? "registrar" : ["registrar", "historico", "fornecedores", "sinais"].includes(requestedTab) ? requestedTab : "registrar";
@@ -106,6 +108,7 @@ export default async function ComprasPage({ searchParams }: PageProps) {
             <Alert tone="warning">Cadastre um fornecedor na aba Fornecedores antes de registrar a primeira compra.</Alert>
           ) : null}
           <PurchaseForm
+            immediateItems={immediateItems.filter((item) => item.isActive)}
             key={purchase?.id || "nova"}
             year={selected.year}
             month={selected.month}

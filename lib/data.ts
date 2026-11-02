@@ -2180,6 +2180,28 @@ export async function setPeriodClosed(input: {
   });
 }
 
+// Itens padrão de uso imediato: acha pelo nome (sem diferenciar maiúsculas) e, se pedido,
+// cadastra um novo. Só vale para Insumos e Despesa. Ver lib/uso-imediato.ts.
+export async function matchImmediateItem(
+  db: Db,
+  description: string,
+  movementTypeId: number | null | undefined,
+  saveAsStandard = false,
+) {
+  const name = description.trim();
+  if (!name || !movementTypeId) return null;
+  const type = await queryOne(db, "SELECT name FROM movement_types WHERE id = ?", [movementTypeId]);
+  if (!type || !["Insumos", "Despesa"].includes(String(type.name))) return null;
+  const found = await queryOne(db, "SELECT id, name FROM immediate_items WHERE lower(name) = lower(?)", [name]);
+  if (found) return { id: numeric(found.id), name: String(found.name) };
+  if (!saveAsStandard) return null;
+  const inserted = await run(db, "INSERT INTO immediate_items (name, movement_type_id) VALUES (?, ?) RETURNING id", [
+    name,
+    movementTypeId,
+  ]);
+  return { id: numeric(inserted[0]?.id), name };
+}
+
 type PurchaseLineInput = {
   destination: "inventory" | "financial";
   itemId?: number | null;
@@ -2187,6 +2209,7 @@ type PurchaseLineInput = {
   quantity: number;
   totalAmount: number;
   movementTypeId?: number | null;
+  saveAsStandard?: boolean;
 };
 
 async function assertPurchasePeriodOpen(db: Db, purchaseId: number) {
@@ -2293,7 +2316,15 @@ export async function createOrUpdatePurchase(input: {
 
     const period = await periodFromDate(db, input.date);
     let purchaseId = input.id || 0;
+    // Vínculos a itens padrão feitos à mão (ex.: "Morango 250g" → Morango) continuam ao editar.
+    const previousLinks = new Map<string, number>();
     if (purchaseId) {
+      const linked = await queryAll(
+        db,
+        "SELECT lower(trim(description)) AS d, immediate_item_id FROM purchase_items WHERE purchase_id = ? AND immediate_item_id IS NOT NULL",
+        [purchaseId],
+      );
+      linked.forEach((row) => previousLinks.set(String(row.d), numeric(row.immediate_item_id)));
       await deletePurchaseChildren(db, purchaseId);
       await run(
         db,
@@ -2380,14 +2411,17 @@ export async function createOrUpdatePurchase(input: {
           ],
         );
       } else {
-        const description = line.description?.trim() || "Item de consumo imediato";
+        const typed = line.description?.trim() || "Item de consumo imediato";
+        const standard = await matchImmediateItem(db, typed, line.movementTypeId, line.saveAsStandard);
+        const description = standard?.name || typed;
+        const immediateItemId = standard?.id ?? previousLinks.get(typed.toLowerCase()) ?? null;
         const transactionRows = await run(
           db,
           `
             INSERT INTO financial_transactions (
               period_id, movement_date, payment_method_id, movement_type_id,
-              description, amount, notes, item_id, source
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'purchase')
+              description, amount, notes, item_id, source, immediate_item_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'purchase', ?)
             RETURNING id
           `,
           [
@@ -2398,6 +2432,7 @@ export async function createOrUpdatePurchase(input: {
             description,
             line.totalAmount,
             `${referenceNote} | Quantidade informada: ${line.quantity}`,
+            immediateItemId,
           ],
         );
         const financialTransactionId = numeric(transactionRows[0]?.id);
@@ -2406,8 +2441,8 @@ export async function createOrUpdatePurchase(input: {
           `
             INSERT INTO purchase_items (
               purchase_id, destination, description, quantity, total_amount,
-              movement_type_id, financial_transaction_id
-            ) VALUES (?, 'financial', ?, ?, ?, ?, ?)
+              movement_type_id, financial_transaction_id, immediate_item_id
+            ) VALUES (?, 'financial', ?, ?, ?, ?, ?, ?)
           `,
           [
             purchaseId,
@@ -2416,6 +2451,7 @@ export async function createOrUpdatePurchase(input: {
             line.totalAmount,
             line.movementTypeId,
             financialTransactionId,
+            immediateItemId,
           ],
         );
       }
@@ -2586,11 +2622,22 @@ export async function createOrUpdateFinancialTransaction(input: {
   amount: number;
   itemId?: number | null;
   notes?: string;
+  saveAsStandard?: boolean;
 }) {
   return withTransaction(async (db) => {
     if (input.id) {
       await assertRecordPeriodOpen(db, "financial_transactions", input.id);
       await assertNotPurchaseChild(db, "financial_transaction_id", input.id);
+    }
+    const standard = await matchImmediateItem(db, input.description, input.movementTypeId, input.saveAsStandard);
+    if (standard) input = { ...input, description: standard.name };
+    // Sem item com o mesmo nome: mantém o vínculo anterior se a descrição não mudou.
+    let immediateItemId = standard?.id ?? null;
+    if (!standard && input.id) {
+      const before = await queryOne(db, "SELECT description, immediate_item_id FROM financial_transactions WHERE id = ?", [input.id]);
+      if (before && String(before.description).trim().toLowerCase() === input.description.trim().toLowerCase()) {
+        immediateItemId = before.immediate_item_id == null ? null : numeric(before.immediate_item_id);
+      }
     }
     assertPositive(input.paymentMethodId, "A forma de pagamento");
     assertPositive(input.movementTypeId, "O tipo do lançamento");
@@ -2604,7 +2651,7 @@ export async function createOrUpdateFinancialTransaction(input: {
         db,
         `
           UPDATE financial_transactions
-          SET period_id = ?, movement_date = ?, payment_method_id = ?, movement_type_id = ?, description = ?, amount = ?, item_id = ?, notes = ?, source = 'manual'
+          SET period_id = ?, movement_date = ?, payment_method_id = ?, movement_type_id = ?, description = ?, amount = ?, item_id = ?, notes = ?, source = 'manual', immediate_item_id = ?
           WHERE id = ?
         `,
         [
@@ -2616,6 +2663,7 @@ export async function createOrUpdateFinancialTransaction(input: {
           input.amount,
           input.itemId || null,
           input.notes || null,
+          immediateItemId,
           input.id,
         ],
       );
@@ -2624,8 +2672,8 @@ export async function createOrUpdateFinancialTransaction(input: {
         db,
         `
           INSERT INTO financial_transactions (
-            period_id, movement_date, payment_method_id, movement_type_id, description, amount, item_id, notes, source
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual')
+            period_id, movement_date, payment_method_id, movement_type_id, description, amount, item_id, notes, source, immediate_item_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'manual', ?)
         `,
         [
           period.id,
@@ -2636,6 +2684,7 @@ export async function createOrUpdateFinancialTransaction(input: {
           input.amount,
           input.itemId || null,
           input.notes || null,
+          immediateItemId,
         ],
       );
     }
