@@ -113,6 +113,10 @@ export async function withTransaction<T>(callback: (db: Db) => T | Promise<T>) {
   return result as T;
 }
 
+export async function verificarConexao() {
+  await getSql()`SELECT 1 FROM periods LIMIT 1`;
+}
+
 export const dbHelpers = {
   queryAll,
   queryOne,
