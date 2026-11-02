@@ -2,6 +2,8 @@
 
 - Usuário: Bruno (contador, não programa). Explicar em português simples; Claude conduz as escolhas técnicas. Só o Bruno entra no sistema (a Julia usa o login dele se precisar).
 - Visão de futuro (não fazer sem pedido): custos dos bolos (fichas técnicas), gerencial, agenda da Julia integrada ao Google Agenda. Manter o sistema lógico e profissional.
+- **Site publicado**: https://julia-bolos.vercel.app (Vercel projeto `julia-bolos`, time `financial14`, região gru1; cada `git push` para `brunoandrenunes/julia-bolos` publica). Verificação: `/api/saude` (só diz se o banco responde).
+- **Virada feita em 02/11/2026**: banco da nuvem carregado do SQLite local (cópia em `data/backups/bakery-system-virada-*.sqlite`). Desde então os lançamentos são só no site.
 - Diagnóstico e plano: `AUDITORIA.md`. Uso e estrutura: `README.md`.
 - Código: `D:\Dev\Julia Ronsoni Bolos` (fora do OneDrive). Next.js 16 (ler `node_modules/next/dist/docs` antes de mexer em convenções; `middleware` agora é `proxy.ts`).
 - Banco: Supabase projeto `julia-bolos`, id `eknjtklvccuoonhvscyh`, sa-east-1. Tabelas no schema `app` (não exposto pela API). O site conecta como papel `bolos_app` pelo pooler em **modo sessão** (`aws-1-sa-east-1.pooler.supabase.com:5432`); o modo transação (6543) trava as consultas com parâmetros do postgres.js. Senha só em `.env.local` e na Vercel.
