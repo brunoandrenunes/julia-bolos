@@ -1441,7 +1441,19 @@ fieldset {
 }
 
 .stage-line {
-  grid-template-columns: 110px minmax(0, 1fr) 110px auto 36px;
+  grid-template-columns: 110px minmax(0, 1fr) 170px auto 36px;
+}
+
+.time-pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.time-pair span {
+  font-size: 0.8rem;
+  color: var(--text-3);
 }
 
 .stage-line .save-standard {
@@ -1591,6 +1603,6 @@ fieldset {
   }
 
   .stage-line {
-    grid-template-columns: 96px minmax(0, 1fr) 90px;
+    grid-template-columns: 96px minmax(0, 1fr) 160px;
   }
 }

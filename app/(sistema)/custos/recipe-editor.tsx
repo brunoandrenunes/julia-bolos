@@ -29,7 +29,9 @@ type EditorLine = {
   manualCost: string;
 };
 
-type EditorStage = { key: string; name: string; day: string; hours: string; fixed: boolean };
+type EditorStage = { key: string; name: string; day: string; hours: string; mins: string; fixed: boolean };
+
+const splitMinutes = (total: number) => ({ hours: String(Math.floor(total / 60) || ""), mins: String(Math.round(total % 60) || "") });
 
 let nextKey = 1;
 const newKey = () => `l${nextKey++}`;
@@ -109,11 +111,11 @@ export function RecipeEditor({
           key: newKey(),
           name: stage.name,
           day: String(stage.day),
-          hours: String(Math.round((stage.minutes / 60) * 100) / 100),
+          ...splitMinutes(stage.minutes),
           fixed: stage.fixed,
         }))
       : product?.prepMinutes
-        ? [{ key: newKey(), name: "Produção", day: "1", hours: String(Math.round((product.prepMinutes / 60) * 100) / 100), fixed: false }]
+        ? [{ key: newKey(), name: "Produção", day: "1", ...splitMinutes(product.prepMinutes), fixed: false }]
         : [],
   );
   const [notes, setNotes] = useState(product?.notes || "");
@@ -182,7 +184,7 @@ export function RecipeEditor({
     .map((stage) => ({
       name: stage.name.trim(),
       day: Math.min(Math.max(Math.round(Number(stage.day) || 1), 1), 60),
-      minutes: Math.round((Number(toNumber(stage.hours)) || 0) * 60),
+      minutes: Math.round((Number(toNumber(stage.hours)) || 0) * 60 + (Number(toNumber(stage.mins)) || 0)),
       fixed: stage.fixed,
     }))
     .filter((stage) => stage.name || stage.minutes > 0);
@@ -241,21 +243,21 @@ export function RecipeEditor({
               <div className="field">
                 <label htmlFor="p-yield">Uma receita rende</label>
                 <div className="input-pair">
-                  <input id="p-yield" type="number" min="0.01" step="0.01" inputMode="decimal" value={yieldQty} onChange={(event) => setYieldQty(event.target.value)} placeholder="25" required />
+                  <input id="p-yield" type="number" min="0.01" step="any" inputMode="decimal" value={yieldQty} onChange={(event) => setYieldQty(event.target.value)} placeholder="25" required />
                   <input aria-label="Unidade do rendimento" value={yieldUnit} onChange={(event) => setYieldUnit(event.target.value)} />
                 </div>
               </div>
               <div className="field">
                 <label htmlFor="p-price">Preço de venda por unidade</label>
-                <input id="p-price" type="number" min="0" step="0.01" inputMode="decimal" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} placeholder="R$ (opcional)" />
+                <input id="p-price" type="number" min="0" step="any" inputMode="decimal" value={salePrice} onChange={(event) => setSalePrice(event.target.value)} placeholder="R$ (opcional)" />
               </div>
               <div className="field">
                 <label htmlFor="p-margin">Margem desejada (%)</label>
-                <input id="p-margin" type="number" min="0" max="99" step="0.1" inputMode="decimal" value={targetMargin} onChange={(event) => setTargetMargin(event.target.value)} placeholder="Ex.: 60" />
+                <input id="p-margin" type="number" min="0" max="99" step="any" inputMode="decimal" value={targetMargin} onChange={(event) => setTargetMargin(event.target.value)} placeholder="Ex.: 60" />
               </div>
               <div className="field">
                 <label htmlFor="p-indirect">Custos indiretos (%)</label>
-                <input id="p-indirect" type="number" min="0" max="500" step="0.1" inputMode="decimal" value={indirect} onChange={(event) => setIndirect(event.target.value)} placeholder={`padrão ${String(Math.round(indirectDefault * 1000) / 10).replace(".", ",")}`} />
+                <input id="p-indirect" type="number" min="0" max="500" step="any" inputMode="decimal" value={indirect} onChange={(event) => setIndirect(event.target.value)} placeholder={`padrão ${String(Math.round(indirectDefault * 1000) / 10).replace(".", ",")}`} />
               </div>
               <div className="field wide">
                 <label htmlFor="p-notes">Observação (opcional)</label>
@@ -304,7 +306,7 @@ export function RecipeEditor({
                         </div>
                         <div className="field">
                           <label>Valor (R$)</label>
-                          <input type="number" min="0" step="0.01" inputMode="decimal" value={line.manualCost} onChange={(event) => update(line.key, { manualCost: event.target.value })} />
+                          <input type="number" min="0" step="any" inputMode="decimal" value={line.manualCost} onChange={(event) => update(line.key, { manualCost: event.target.value })} />
                         </div>
                       </>
                     ) : (
@@ -323,7 +325,7 @@ export function RecipeEditor({
                         <div className="field">
                           <label>Quantidade</label>
                           <div className="input-pair">
-                            <input type="number" min="0" step="0.001" inputMode="decimal" value={line.quantity} onChange={(event) => update(line.key, { quantity: event.target.value })} />
+                            <input type="number" min="0" step="any" inputMode="decimal" value={line.quantity} onChange={(event) => update(line.key, { quantity: event.target.value })} />
                             <select aria-label="Unidade" value={line.unit} onChange={(event) => update(line.key, { unit: event.target.value as LineUnit })}>
                               {LINE_UNITS.map((unit) => <option key={unit.value} value={unit.value}>{unit.label}</option>)}
                             </select>
@@ -403,8 +405,13 @@ export function RecipeEditor({
                       <input value={stage.name} onChange={(event) => updateStage(stage.key, { name: event.target.value })} placeholder="Ex.: massa, banhar e rechear, embalar" />
                     </div>
                     <div className="field">
-                      <label>Horas</label>
-                      <input type="number" min="0" step="0.25" inputMode="decimal" value={stage.hours} onChange={(event) => updateStage(stage.key, { hours: event.target.value })} placeholder="Ex.: 2,5" />
+                      <label>Tempo</label>
+                      <div className="time-pair">
+                        <input type="number" min="0" step="1" inputMode="numeric" value={stage.hours} onChange={(event) => updateStage(stage.key, { hours: event.target.value })} placeholder="0" aria-label={`Horas da etapa ${index + 1}`} />
+                        <span>h</span>
+                        <input type="number" min="0" step="1" inputMode="numeric" value={stage.mins} onChange={(event) => updateStage(stage.key, { mins: event.target.value })} placeholder="0" aria-label={`Minutos da etapa ${index + 1}`} />
+                        <span>min</span>
+                      </div>
                     </div>
                     <label className="save-standard" title="Ex.: montar a bancada ou limpar: leva o mesmo tempo para 1 ou 4 receitas">
                       <input type="checkbox" checked={stage.fixed} onChange={(event) => updateStage(stage.key, { fixed: event.target.checked })} />
@@ -432,7 +439,7 @@ export function RecipeEditor({
                 onClick={() =>
                   setStages((current) => [
                     ...current,
-                    { key: newKey(), name: "", day: current.length ? String(Number(current[current.length - 1].day) + 1) : "1", hours: "", fixed: false },
+                    { key: newKey(), name: "", day: current.length ? String(Number(current[current.length - 1].day) + 1) : "1", hours: "", mins: "", fixed: false },
                   ])
                 }
               >

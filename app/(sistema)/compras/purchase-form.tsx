@@ -239,8 +239,8 @@ export function PurchaseForm({
                 <input
                   type="number"
                   name="lineQuantity"
-                  min="0.01"
-                  step="0.01"
+                  min="0.001"
+                  step="any"
                   inputMode="decimal"
                   value={line.quantity}
                   onChange={(event) => updateLine(line.key, { quantity: event.target.value })}
@@ -252,7 +252,7 @@ export function PurchaseForm({
                 <input
                   type="number"
                   min="0"
-                  step="0.0001"
+                  step="any"
                   inputMode="decimal"
                   value={line.unitPrice}
                   onChange={(event) => updateLine(line.key, { unitPrice: event.target.value, anchor: "unit" })}
