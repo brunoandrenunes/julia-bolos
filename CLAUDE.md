@@ -1,0 +1,13 @@
+# Projeto: Sistema Julia Ronsoni Bolos (estoque, compras, financeiro, DRE)
+
+- Usuário: Bruno (contador, não programa). Explicar em português simples; Claude conduz as escolhas técnicas. Só o Bruno entra no sistema (a Julia usa o login dele se precisar).
+- Visão de futuro (não fazer sem pedido): custos dos bolos (fichas técnicas), gerencial, agenda da Julia integrada ao Google Agenda. Manter o sistema lógico e profissional.
+- Diagnóstico e plano: `AUDITORIA.md`. Uso e estrutura: `README.md`.
+- Código: `D:\Dev\Julia Ronsoni Bolos` (fora do OneDrive). Next.js 16 (ler `node_modules/next/dist/docs` antes de mexer em convenções; `middleware` agora é `proxy.ts`).
+- Banco: Supabase projeto `julia-bolos`, id `eknjtklvccuoonhvscyh`, sa-east-1. Tabelas no schema `app` (não exposto pela API). O site conecta como papel `bolos_app` pelo pooler em **modo sessão** (`aws-1-sa-east-1.pooler.supabase.com:5432`); o modo transação (6543) trava as consultas com parâmetros do postgres.js. Senha só em `.env.local` e na Vercel.
+- Login: Supabase Auth, e-mail + senha + TOTP (aal2) e e-mail na lista `DONO_EMAIL`. Conferido no `proxy.ts` e em toda leitura/gravação (`lib/auth.ts`). Teste local sem login: `TESTE_LOCAL_SEM_LOGIN=1` (só vale em `npm run dev`).
+- Migrações em `supabase/migrations`. Carga do sistema antigo: `node scripts/importar-sqlite.mjs <arquivo> [--substituir]` (transação única, confere contagens e somas).
+- Sistema antigo (local, sql.js): `D:\Bruno\OneDrive\Bruno\Julia Ronsoni Bolos\2026\Sistema\2026-04-21-files-mentioned-by-the-user-04`. Não alterar o banco de lá; depois da virada vira só consulta.
+- Dados reais nunca vão para o GitHub (`data/`, `*.sqlite`, `.env*` ignorados).
+- Regras de negócio: baixas de estoque são contagens físicas (1–2 por mês), não consumo diário. Compras pela aba Compras geram entradas de estoque e lançamentos financeiros vinculados. Jan–mar/2026 só como resumo mensal (`period_snapshots`).
+- Antes de mexer em dados: backup (botão "Baixar backup completo" ou export), e comparar quantidades antes/depois.

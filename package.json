@@ -1,0 +1,31 @@
+{
+  "name": "julia-bolos",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Sistema de gestão da Julia Ronsoni Bolos: estoque, compras, financeiro e DRE.",
+  "scripts": {
+    "dev": "next dev --webpack -p 3100",
+    "build": "next build",
+    "start": "next start",
+    "typecheck": "tsc --noEmit",
+    "importar-sqlite": "node scripts/importar-sqlite.mjs"
+  },
+  "dependencies": {
+    "@supabase/ssr": "^0.12.7",
+    "@supabase/supabase-js": "^2.118.0",
+    "clsx": "^2.1.1",
+    "date-fns": "^4.1.0",
+    "exceljs": "^4.4.0",
+    "next": "^16.2.4",
+    "postgres": "^4.0.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "sql.js": "^1.14.1",
+    "typescript": "^6.0.3"
+  }
+}

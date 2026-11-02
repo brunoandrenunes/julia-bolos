@@ -1,0 +1,14 @@
+node_modules
+.next
+.npm-cache
+*.log
+*.tsbuildinfo
+next-env.d.ts
+.vercel
+
+# configuração com senhas: fica só neste computador e na Vercel
+.env*
+
+# dados reais nunca vão para o GitHub
+data/
+*.sqlite
