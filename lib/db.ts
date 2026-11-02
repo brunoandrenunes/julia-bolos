@@ -1,4 +1,4 @@
-import postgres from "postgres";
+import { Pool, types, type PoolClient } from "pg";
 import { cache } from "react";
 import { exigirDono } from "@/lib/auth";
 
@@ -6,43 +6,49 @@ import { exigirDono } from "@/lib/auth";
 // (bolos_app) que só enxerga o schema "app": lê e grava dados, mas não altera a estrutura.
 
 type Row = Record<string, any>;
+type Executor = Pick<Pool, "query"> | PoolClient;
 export type Db = {
-  sql: postgres.Sql | postgres.TransactionSql;
+  sql: Executor;
   // Consultas repetidas na mesma tela são lidas uma vez só.
   cache?: Map<string, Promise<Row[]>>;
+  // Numa transação há uma só conexão: as consultas entram em fila, uma de cada vez.
+  queue?: { last: Promise<unknown> };
 };
 
-const globalForSql = globalThis as unknown as { bolosSql?: postgres.Sql };
+// COUNT e SUM de inteiros chegam como bigint/numeric; números pequenos, então viram Number.
+types.setTypeParser(20, (value) => Number(value));
+types.setTypeParser(1700, (value) => Number(value));
 
-function getSql() {
-  if (!globalForSql.bolosSql) {
-    const url = process.env.DATABASE_URL;
-    if (!url) {
-      throw new Error("DATABASE_URL não configurada.");
-    }
-    globalForSql.bolosSql = postgres(url, {
-      prepare: false, // exigido pelo pooler do Supabase (modo transação)
-      max: 5,
-      idle_timeout: 20,
-      connect_timeout: 15,
-      types: {
-        // COUNT e SUM de inteiros chegam como bigint; números pequenos, então viram Number.
-        bigint: {
-          to: 20,
-          from: [20],
-          serialize: (value: number) => String(value),
-          parse: (value: string) => Number(value),
-        },
-        numeric: {
-          to: 1700,
-          from: [1700],
-          serialize: (value: number) => String(value),
-          parse: (value: string) => Number(value),
-        },
-      },
+const globalForPool = globalThis as unknown as { bolosPool?: Pool };
+
+// Na Vercel cada acesso pode abrir uma cópia nova do servidor. Por isso o sistema usa o
+// pooler do Supabase em modo transação (porta 6543), que aceita muitas conexões curtas.
+function connectionString() {
+  // No computador de desenvolvimento usa a cópia de teste (schema app_teste), nunca os dados reais.
+  const raw =
+    process.env.NODE_ENV === "development" && process.env.DATABASE_URL_TESTE
+      ? process.env.DATABASE_URL_TESTE
+      : process.env.DATABASE_URL;
+  if (!raw) {
+    throw new Error("DATABASE_URL não configurada.");
+  }
+  const url = new URL(raw);
+  if (url.hostname.endsWith("pooler.supabase.com")) {
+    url.port = "6543";
+  }
+  return url.toString();
+}
+
+function getPool() {
+  if (!globalForPool.bolosPool) {
+    globalForPool.bolosPool = new Pool({
+      connectionString: connectionString(),
+      max: 3,
+      idleTimeoutMillis: 10_000,
+      connectionTimeoutMillis: 15_000,
     });
   }
-  return globalForSql.bolosSql;
+  return globalForPool.bolosPool;
 }
 
 const getRequestCache = cache(() => new Map<string, Promise<Row[]>>());
@@ -69,8 +75,14 @@ function normalizeParams(params: any[]) {
 }
 
 async function execute(db: Db, text: string, params: any[]): Promise<Row[]> {
-  const result = await db.sql.unsafe(toPostgresPlaceholders(text), normalizeParams(params));
-  return Array.from(result, (row) => ({ ...row }));
+  const send = async () =>
+    (await db.sql.query(toPostgresPlaceholders(text), normalizeParams(params))).rows as Row[];
+  if (!db.queue) {
+    return send();
+  }
+  const next = db.queue.last.then(send, send);
+  db.queue.last = next.catch(() => undefined);
+  return next;
 }
 
 async function queryAll(db: Db, text: string, params: any[] = []): Promise<Row[]> {
@@ -103,18 +115,28 @@ async function seedLookupId(db: Db, table: string, name: string) {
 
 export async function withDatabase<T>(callback: (db: Db) => T | Promise<T>) {
   await exigirDono();
-  return callback({ sql: getSql(), cache: getRequestCache() });
+  return callback({ sql: getPool(), cache: getRequestCache() });
 }
 
 export async function withTransaction<T>(callback: (db: Db) => T | Promise<T>) {
   await exigirDono();
-  const result = await getSql().begin((tx) => callback({ sql: tx }));
-  getRequestCache().clear();
-  return result as T;
+  const client = await getPool().connect();
+  try {
+    await client.query("BEGIN");
+    const result = await callback({ sql: client, queue: { last: Promise.resolve() } });
+    await client.query("COMMIT");
+    getRequestCache().clear();
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function verificarConexao() {
-  await getSql()`SELECT 1 FROM periods LIMIT 1`;
+  await getPool().query("SELECT 1 FROM periods LIMIT 1");
 }
 
 export const dbHelpers = {
