@@ -53,6 +53,8 @@ export function vigiarSessao() {
   const conferir = () => {
     if (sessaoVencida()) void sairDoSistema();
   };
+  // Sessão válida no servidor mas sem registro neste navegador: começa a contar agora.
+  if (!ler(K_INICIO) || !ler(K_ATIV)) marcarLogin();
   conferir();
   const eventos = ["mousedown", "keydown", "wheel", "touchstart"] as const;
   eventos.forEach((e) => window.addEventListener(e, atividade, { passive: true }));

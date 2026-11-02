@@ -1,5 +1,6 @@
-import { format } from "date-fns";
 import type { ReportScope } from "@/lib/types";
+
+const TIME_ZONE = "America/Sao_Paulo";
 
 export function currency(value: number) {
   // Resíduos de arredondamento (ex.: -0,000000001) aparecem como R$ 0,00, não "-R$ 0,00".
@@ -40,8 +41,26 @@ export function monthLabel(year: number, month: number) {
   }).format(new Date(year, month - 1, 1));
 }
 
+export function shortMonthLabel(month: number) {
+  const label = new Intl.DateTimeFormat("pt-BR", { month: "short" }).format(new Date(2026, month - 1, 1));
+  return label.replace(".", "").replace(/^./, (char) => char.toUpperCase());
+}
+
+// Data de hoje no horário de Brasília (o servidor da Vercel roda em UTC).
 export function isoToday() {
-  return format(new Date(), "yyyy-MM-dd");
+  return new Intl.DateTimeFormat("sv-SE", { timeZone: TIME_ZONE }).format(new Date());
+}
+
+export function currentYearMonth() {
+  const [year, month] = isoToday().split("-").map(Number);
+  return { year, month };
+}
+
+// 2026-10-31 -> 31/10/2026
+export function formatDate(value: string | null | undefined) {
+  if (!value) return "-";
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
 }
 
 export function clampNumber(value: unknown, fallback = 0) {

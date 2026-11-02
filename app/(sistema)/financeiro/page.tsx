@@ -1,8 +1,4 @@
 import Link from "next/link";
-import { FormCard } from "@/components/form-card";
-import { PageIntro } from "@/components/page-intro";
-import { Pill } from "@/components/pill";
-import { TableCard } from "@/components/table-card";
 import {
   closePeriodAction,
   deleteFinancialTransactionAction,
@@ -11,517 +7,395 @@ import {
   saveFinancialTransactionAction,
   saveTransferAction,
 } from "@/app/actions";
+import { ConfirmButton } from "@/components/client-ui";
+import { Alert, Badge, Card, Drawer, Empty, Flash, PageHead, PeriodHidden, Stat, Tabs } from "@/components/ui";
 import {
-  getDashboardSummary,
   getEditBundle,
   getFinancialTransactions,
-  getItems,
+  getInventoryUsages,
   getMovementTypes,
   getPaymentMethods,
   getPeriodContext,
+  getReportSnapshot,
   getTransfers,
 } from "@/lib/data";
 import type { SearchParams } from "@/lib/types";
-import { buildPeriodHref, currency, isoToday } from "@/lib/utils";
+import { currency, formatDate, isoToday } from "@/lib/utils";
+import { PeriodPicker, paramText, tabHref } from "../_comum";
 
-type PageProps = {
-  searchParams?: Promise<SearchParams>;
+type PageProps = { searchParams?: Promise<SearchParams> };
+
+const TYPE_TONE: Record<string, "success" | "warning" | "danger" | "info" | "brand" | undefined> = {
+  Receita: "success",
+  Insumos: "warning",
+  Despesa: "danger",
+  Retirada: "brand",
 };
 
-function paramText(params: SearchParams, key: string) {
-  const value = params[key];
-  return Array.isArray(value) ? String(value[0] || "") : String(value || "");
-}
-
-function dateInputValue(value?: string | null) {
-  if (!value) return isoToday();
-  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10);
-
-  const parts = value.split(/[/-]/);
-  if (parts.length === 3) {
-    const [day, month, year] = parts;
-    if (year?.length === 4) {
-      return `${year}-${month.padStart(2, "0")}-${day.padStart(2, "0")}`;
-    }
-  }
-
-  return isoToday();
+function defaultDate(year: number, month: number) {
+  const today = isoToday();
+  const prefix = `${year}-${String(month).padStart(2, "0")}`;
+  return today.startsWith(prefix) ? today : `${prefix}-01`;
 }
 
 export default async function FinanceiroPage({ searchParams }: PageProps) {
   const params = (await searchParams) || {};
-  const [{ selected, options }, paymentMethods, movementTypes, items, transactions, transfers, editBundle, dashboard] =
-    await Promise.all([
-      getPeriodContext(params),
-      getPaymentMethods(),
-      getMovementTypes(),
-      getItems(),
-      getFinancialTransactions(params),
-      getTransfers(params),
-      getEditBundle(params),
-      getDashboardSummary(params),
-    ]);
+  const requested = paramText(params, "aba");
+  const tab = params.editTransferencia ? "transferencias" : params.editLancamento ? "lancamentos" : ["lancamentos", "transferencias", "fechamento"].includes(requested) ? requested : "lancamentos";
+  const monthParams = { year: params.year, month: params.month, scope: "month" };
+  const [{ selected, options }, paymentMethods, movementTypes, transactions, transfers, edit, report, usages] = await Promise.all([
+    getPeriodContext(params),
+    getPaymentMethods(),
+    getMovementTypes(),
+    getFinancialTransactions(params),
+    getTransfers(params),
+    getEditBundle(params),
+    getReportSnapshot(monthParams),
+    getInventoryUsages(monthParams),
+  ]);
 
-  const filterParams = {
+  const s = report.selectedSummary;
+  const locked = selected.isClosed;
+  const tx = edit.financialTransaction;
+  const transfer = edit.transfer;
+  const filters = {
     paymentMethodId: paramText(params, "paymentMethodId") || undefined,
     movementTypeId: paramText(params, "movementTypeId") || undefined,
-    itemId: paramText(params, "itemId") || undefined,
-    source: paramText(params, "source") || undefined,
     q: paramText(params, "q") || undefined,
   };
-  const hasFilters = Object.values(filterParams).some(Boolean);
-  const errorMessage = paramText(params, "error");
-  const noticeMessage = paramText(params, "notice");
+  const hasFilters = Object.values(filters).some(Boolean);
+  const filteredTotal = transactions.reduce((sum, row) => sum + row.amount, 0);
+  const noCount = usages.length === 0 && report.summarySource !== "snapshot";
 
   return (
-    <div className="grid">
-      <PageIntro
-        title="Financeiro"
-        description="Receitas, insumos, despesas, retiradas e transferências entre contas em um único fluxo."
-        options={options}
-        selectedKey={`${selected.year}-${String(selected.month).padStart(2, "0")}`}
+    <>
+      <PageHead title="Financeiro" description="Receitas, gastos, retiradas, transferências e fechamento do mês.">
+        <PeriodPicker options={options} selected={selected} />
+      </PageHead>
+
+      <Flash error={paramText(params, "error")} notice={paramText(params, "notice")} />
+      {locked && tab !== "fechamento" ? (
+        <Alert
+          tone="info"
+          title={`${selected.label} está fechado`}
+          action={<Link className="btn btn-sm" href={tabHref("/financeiro", selected, "fechamento")}>Ver fechamento</Link>}
+        >
+          Os lançamentos ficam para consulta e não podem ser alterados.
+        </Alert>
+      ) : null}
+
+      <div className="stats">
+        <Stat label="Receita" value={currency(s.revenue)} />
+        <Stat label="Insumos" value={currency(s.inputs)} note="Uso imediato" />
+        <Stat label="Despesas" value={currency(s.expenses)} />
+        <Stat label="Retiradas" value={currency(s.withdrawals)} />
+      </div>
+
+      <Tabs
+        active={tab}
+        tabs={[
+          { key: "lancamentos", label: "Lançamentos", count: transactions.length, href: tabHref("/financeiro", selected, "lancamentos") },
+          { key: "transferencias", label: "Transferências", count: transfers.length, href: tabHref("/financeiro", selected, "transferencias") },
+          { key: "fechamento", label: locked ? "Fechamento · fechado" : "Fechamento do mês", href: tabHref("/financeiro", selected, "fechamento") },
+        ]}
       />
 
-      {errorMessage ? <div className="action-message error">{errorMessage}</div> : null}
-      {noticeMessage ? <div className="action-message success">{noticeMessage}</div> : null}
-
-      <div className={`period-lock-panel ${selected.isClosed ? "closed" : "open"}`}>
-        <div>
-          <div className="period-lock-eyebrow">Segurança do período</div>
-          <h2>{selected.isClosed ? `${selected.label} está fechado` : `${selected.label} está em aberto`}</h2>
-          <p>
-            {selected.isClosed
-              ? "Os dados continuam disponíveis para consulta, mas nenhum lançamento pode ser incluído, editado ou excluído."
-              : "Enquanto estiver aberto, os lançamentos podem ser incluídos e corrigidos normalmente."}
-          </p>
-        </div>
-        {selected.isClosed ? (
-          <form action={reopenPeriodAction} className="period-lock-action">
-            <input type="hidden" name="year" value={selected.year} />
-            <input type="hidden" name="month" value={selected.month} />
-            <label className="confirmation-check">
-              <input type="checkbox" name="confirmReopen" value="yes" required />
-              Confirmo que preciso alterar lançamentos deste mês.
-            </label>
-            <button className="secondary-button" type="submit">Reabrir período</button>
-          </form>
-        ) : (
-          <form action={closePeriodAction} className="period-lock-action">
-            <input type="hidden" name="year" value={selected.year} />
-            <input type="hidden" name="month" value={selected.month} />
-            <button className="button" type="submit">Fechar e proteger período</button>
-          </form>
-        )}
-      </div>
-
-      <div className="pill-row">
-        {dashboard.balances.map((balance) => (
-          <Pill key={balance.paymentMethod} tone={balance.kind === "asset" ? "success" : "warning"}>
-            {balance.paymentMethod}: {currency(balance.final)}
-          </Pill>
-        ))}
-      </div>
-
-      <div className="panel">
-        <div className="page-header">
-          <div>
-            <h2>Filtros dos lançamentos</h2>
-            <p>Use para conferir lançamentos por forma de pagamento, tipo, item, origem ou texto.</p>
-          </div>
-          {hasFilters ? (
-            <Link className="secondary-button" href={buildPeriodHref("/financeiro", selected.year, selected.month)}>
-              Limpar filtros
-            </Link>
+      {tab === "lancamentos" ? (
+        <>
+          {!locked ? (
+            <Drawer title={tx ? `Editar lançamento — ${tx.description}` : "Novo lançamento"} hint="receita, insumo, despesa ou retirada" open={Boolean(tx)}>
+              <form action={saveFinancialTransactionAction} className="form" key={tx?.id || "novo"}>
+                <input type="hidden" name="id" value={tx?.id || ""} />
+                <input type="hidden" name="itemId" value={tx?.item_id || ""} />
+                <PeriodHidden year={selected.year} month={selected.month} aba="lancamentos" />
+                <div className="fields">
+                  <div className="field">
+                    <label htmlFor="t-type">Tipo</label>
+                    <select id="t-type" name="movementTypeId" defaultValue={String(tx?.movement_type_id ?? movementTypes[0]?.id ?? "")}>
+                      {movementTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="t-date">Data</label>
+                    <input id="t-date" type="date" name="date" defaultValue={tx?.movement_date || defaultDate(selected.year, selected.month)} required />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="t-pay">Conta</label>
+                    <select id="t-pay" name="paymentMethodId" defaultValue={String(tx?.payment_method_id ?? paymentMethods[0]?.id ?? "")}>
+                      {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="t-amount">Valor</label>
+                    <input id="t-amount" type="number" step="0.01" min="0.01" inputMode="decimal" name="amount" defaultValue={tx?.amount ?? ""} required />
+                  </div>
+                  <div className="field" style={{ gridColumn: "span 2" }}>
+                    <label htmlFor="t-desc">Descrição</label>
+                    <input id="t-desc" name="description" defaultValue={tx?.description || ""} placeholder="Ex.: Recebimentos, Entrega, Mão de obra" required />
+                  </div>
+                  <div className="field wide">
+                    <label htmlFor="t-notes">Observação (opcional)</label>
+                    <input id="t-notes" name="notes" defaultValue={tx?.notes || ""} />
+                  </div>
+                </div>
+                <div className="form-actions">
+                  <button className="btn btn-primary" type="submit">{tx ? "Salvar lançamento" : "Registrar lançamento"}</button>
+                  {tx ? <Link className="btn btn-ghost" href={tabHref("/financeiro", selected, "lancamentos")}>Cancelar</Link> : null}
+                </div>
+              </form>
+            </Drawer>
           ) : null}
+
+          <Card flush>
+            <form action="/financeiro" className="filters">
+              <PeriodHidden year={selected.year} month={selected.month} aba="lancamentos" />
+              <div className="field">
+                <label htmlFor="f-type">Tipo</label>
+                <select id="f-type" name="movementTypeId" defaultValue={filters.movementTypeId || ""}>
+                  <option value="">Todos</option>
+                  {movementTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
+                </select>
+              </div>
+              <div className="field">
+                <label htmlFor="f-pay">Conta</label>
+                <select id="f-pay" name="paymentMethodId" defaultValue={filters.paymentMethodId || ""}>
+                  <option value="">Todas</option>
+                  {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
+                </select>
+              </div>
+              <div className="field grow">
+                <label htmlFor="f-q">Buscar</label>
+                <input id="f-q" name="q" defaultValue={filters.q || ""} placeholder="Descrição ou observação" />
+              </div>
+              <button className="btn" type="submit">Filtrar</button>
+              {hasFilters ? <Link className="btn btn-ghost" href={tabHref("/financeiro", selected, "lancamentos")}>Limpar</Link> : null}
+            </form>
+            {transactions.length ? (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Tipo</th>
+                      <th>Descrição</th>
+                      <th>Conta</th>
+                      <th className="num">Valor</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {transactions.map((row) => (
+                      <tr key={row.id}>
+                        <td>{formatDate(row.movement_date)}</td>
+                        <td><Badge tone={TYPE_TONE[row.movement_type_name]}>{row.movement_type_name}</Badge></td>
+                        <td>
+                          <strong>{row.description}</strong>
+                          {row.supplier_name ? <span className="sub">Compra · {row.supplier_name}</span> : row.notes ? <span className="sub">{row.notes}</span> : null}
+                        </td>
+                        <td>{row.payment_method_name}</td>
+                        <td className={`num ${row.movement_type_name === "Receita" ? "pos" : ""}`}>{currency(row.amount)}</td>
+                        <td>
+                          <div className="row-actions">
+                            {row.purchase_id ? (
+                              <Link className="btn btn-sm btn-ghost" href={tabHref("/compras", selected, "registrar", { editCompra: row.purchase_id })}>Ver compra</Link>
+                            ) : locked ? null : (
+                              <>
+                                <Link className="btn btn-sm btn-ghost" href={tabHref("/financeiro", selected, "lancamentos", { editLancamento: row.id })}>Editar</Link>
+                                <form action={deleteFinancialTransactionAction}>
+                                  <input type="hidden" name="id" value={row.id} />
+                                  <PeriodHidden year={selected.year} month={selected.month} aba="lancamentos" />
+                                  <ConfirmButton message={`Excluir o lançamento "${row.description}"?`}>Excluir</ConfirmButton>
+                                </form>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {hasFilters ? (
+                      <tr className="total">
+                        <td colSpan={4}>Total filtrado</td>
+                        <td className="num">{currency(filteredTotal)}</td>
+                        <td />
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <Empty>{hasFilters ? "Nenhum lançamento com esses filtros." : "Nenhum lançamento neste mês."}</Empty>
+            )}
+          </Card>
+        </>
+      ) : null}
+
+      {tab === "transferencias" ? (
+        <>
+          {!locked ? (
+            <Drawer title={transfer ? "Editar transferência" : "Nova transferência"} hint="pagamento do cartão, depósito do dinheiro etc." open={Boolean(transfer)}>
+              <form action={saveTransferAction} className="form" key={transfer?.id || "nova"}>
+                <input type="hidden" name="id" value={transfer?.id || ""} />
+                <PeriodHidden year={selected.year} month={selected.month} aba="transferencias" />
+                <div className="fields">
+                  <div className="field">
+                    <label htmlFor="tr-date">Data</label>
+                    <input id="tr-date" type="date" name="date" defaultValue={transfer?.movement_date || defaultDate(selected.year, selected.month)} required />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="tr-from">De</label>
+                    <select id="tr-from" name="fromPaymentMethodId" defaultValue={String(transfer?.from_payment_method_id ?? paymentMethods[0]?.id ?? "")}>
+                      {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="tr-to">Para</label>
+                    <select id="tr-to" name="toPaymentMethodId" defaultValue={String(transfer?.to_payment_method_id ?? paymentMethods[paymentMethods.length - 1]?.id ?? "")}>
+                      {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="tr-amount">Valor</label>
+                    <input id="tr-amount" type="number" step="0.01" min="0.01" inputMode="decimal" name="amount" defaultValue={transfer?.amount ?? ""} required />
+                  </div>
+                  <div className="field" style={{ gridColumn: "span 2" }}>
+                    <label htmlFor="tr-desc">Descrição</label>
+                    <input id="tr-desc" name="description" defaultValue={transfer?.description || "Pagamento da fatura do cartão"} required />
+                  </div>
+                  <div className="field wide">
+                    <label htmlFor="tr-notes">Observação (opcional)</label>
+                    <input id="tr-notes" name="notes" defaultValue={transfer?.notes || ""} />
+                  </div>
+                </div>
+                <div className="form-actions">
+                  <button className="btn btn-primary" type="submit">{transfer ? "Salvar transferência" : "Registrar transferência"}</button>
+                  {transfer ? <Link className="btn btn-ghost" href={tabHref("/financeiro", selected, "transferencias")}>Cancelar</Link> : null}
+                </div>
+              </form>
+            </Drawer>
+          ) : null}
+
+          <div className="grid-3-1">
+            <Card title="Transferências do mês" description="Não mudam o resultado, só onde o dinheiro está." flush>
+              {transfers.length ? (
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Data</th>
+                        <th>Descrição</th>
+                        <th>De → Para</th>
+                        <th className="num">Valor</th>
+                        <th />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transfers.map((row) => (
+                        <tr key={row.id}>
+                          <td>{formatDate(row.movement_date)}</td>
+                          <td><strong>{row.description}</strong>{row.notes ? <span className="sub">{row.notes}</span> : null}</td>
+                          <td>{row.from_payment_method_name} → {row.to_payment_method_name}</td>
+                          <td className="num">{currency(row.amount)}</td>
+                          <td>
+                            {locked ? null : (
+                              <div className="row-actions">
+                                <Link className="btn btn-sm btn-ghost" href={tabHref("/financeiro", selected, "transferencias", { editTransferencia: row.id })}>Editar</Link>
+                                <form action={deleteTransferAction}>
+                                  <input type="hidden" name="id" value={row.id} />
+                                  <PeriodHidden year={selected.year} month={selected.month} aba="transferencias" />
+                                  <ConfirmButton message="Excluir esta transferência?">Excluir</ConfirmButton>
+                                </form>
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <Empty>Nenhuma transferência neste mês.</Empty>
+              )}
+            </Card>
+            <Card title="Saldos no fim do mês" flush>
+              <div className="list">
+                {report.balances.map((row) => (
+                  <div className="list-row" key={row.paymentMethod}>
+                    <span className="label">{row.paymentMethod}{row.kind === "liability" ? <span className="muted"> · a pagar</span> : null}</span>
+                    <span className="num">{currency(row.final)}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        </>
+      ) : null}
+
+      {tab === "fechamento" ? (
+        <div className="grid-2">
+          <Card
+            title={locked ? `${selected.label} está fechado` : `Fechar ${selected.label.toLowerCase()}`}
+            description={locked ? "Nada pode ser incluído, alterado ou excluído neste mês." : "Depois de conferir tudo, feche o mês para protegê-lo de alterações acidentais."}
+          >
+            {locked ? (
+              <form action={reopenPeriodAction} className="form">
+                <PeriodHidden year={selected.year} month={selected.month} aba="fechamento" />
+                <label className="check">
+                  <input type="checkbox" name="confirmReopen" value="yes" required />
+                  Entendo que reabrir permite alterar lançamentos e muda os saldos dos meses seguintes.
+                </label>
+                <div className="form-actions">
+                  <button className="btn" type="submit">Reabrir mês</button>
+                </div>
+              </form>
+            ) : (
+              <form action={closePeriodAction} className="form">
+                <PeriodHidden year={selected.year} month={selected.month} aba="fechamento" />
+                {noCount ? (
+                  <>
+                    <Alert tone="warning" title="Este mês não tem contagem de estoque">
+                      Se fechar assim, o CMV do mês fica zerado e o consumo vai todo para o mês da próxima contagem.
+                    </Alert>
+                    <label className="check">
+                      <input type="checkbox" name="semContagem" value="sim" required />
+                      Fechar mesmo sem contagem de estoque.
+                    </label>
+                  </>
+                ) : null}
+                <div className="form-actions">
+                  <button className="btn btn-primary" type="submit">Fechar e proteger o mês</button>
+                </div>
+              </form>
+            )}
+          </Card>
+
+          <Card title="Conferência antes de fechar" flush>
+            <div className="list">
+              <div className="list-row">
+                <span className="label">Contagem de estoque</span>
+                {noCount ? <Badge tone="warning">não lançada</Badge> : <Badge tone="success">{usages.length} baixas</Badge>}
+              </div>
+              <div className="list-row">
+                <span className="label">Receita lançada</span>
+                {s.revenue > 0 ? <span className="num">{currency(s.revenue)}</span> : <Badge tone="warning">nenhuma</Badge>}
+              </div>
+              <div className="list-row">
+                <span className="label">CMV</span>
+                <span className="num">{currency(s.cmv)}</span>
+              </div>
+              <div className="list-row">
+                <span className="label">Resultado do mês</span>
+                <span className={`num ${s.result >= 0 ? "pos" : "neg"}`}>{currency(s.result)}</span>
+              </div>
+              {report.balances.map((row) => (
+                <div className="list-row" key={row.paymentMethod}>
+                  <span className="label">Saldo {row.paymentMethod}</span>
+                  <span className={`num ${row.final < 0 && row.kind === "asset" ? "neg" : ""}`}>{currency(row.final)}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
-        <form action="/financeiro" className="form-grid three">
-          <input type="hidden" name="year" value={selected.year} />
-          <input type="hidden" name="month" value={selected.month} />
-          <div className="field">
-            <label htmlFor="filter-payment">Forma de pagamento</label>
-            <select id="filter-payment" name="paymentMethodId" defaultValue={filterParams.paymentMethodId || ""}>
-              <option value="">Todas</option>
-              {paymentMethods.map((method) => (
-                <option key={method.id} value={method.id}>
-                  {method.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="filter-type">Tipo</label>
-            <select id="filter-type" name="movementTypeId" defaultValue={filterParams.movementTypeId || ""}>
-              <option value="">Todos</option>
-              {movementTypes.map((type) => (
-                <option key={type.id} value={type.id}>
-                  {type.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="filter-item">Item relacionado</label>
-            <select id="filter-item" name="itemId" defaultValue={filterParams.itemId || ""}>
-              <option value="">Todos</option>
-              {items.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="filter-source">Origem</label>
-            <select id="filter-source" name="source" defaultValue={filterParams.source || ""}>
-              <option value="">Todas</option>
-              <option value="manual">Manual</option>
-              <option value="purchase">Compra integrada</option>
-              <option value="imported_excel">Importado</option>
-            </select>
-          </div>
-          <div className="field">
-            <label htmlFor="filter-q">Buscar</label>
-            <input id="filter-q" name="q" defaultValue={filterParams.q || ""} placeholder="Descrição, item ou observação" />
-          </div>
-          <div className="field">
-            <label>&nbsp;</label>
-            <button className="button" type="submit">
-              Aplicar filtros
-            </button>
-          </div>
-        </form>
-      </div>
-
-      <div className="columns">
-        <FormCard
-          title={editBundle.financialTransaction ? "Editar lançamento" : "Novo lançamento financeiro"}
-          subtitle="Use Receita, Insumos, Despesa e Retirada. Outros ajustes podem ser adicionados sem mexer na DRE."
-        >
-          <form
-            key={`financial-${editBundle.financialTransaction?.id || "new"}`}
-            action={saveFinancialTransactionAction}
-            className="grid"
-          >
-            <input type="hidden" name="id" value={editBundle.financialTransaction?.id || ""} />
-            <input type="hidden" name="year" value={selected.year} />
-            <input type="hidden" name="month" value={selected.month} />
-
-            <fieldset className="form-fieldset" disabled={selected.isClosed}>
-            <div className="form-grid">
-              <div className="field">
-                <label htmlFor="fin-date">Data</label>
-                <input
-                  id="fin-date"
-                  type="date"
-                  name="date"
-                  defaultValue={dateInputValue(editBundle.financialTransaction?.movement_date)}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="fin-payment">Forma de pagamento</label>
-                <select
-                  id="fin-payment"
-                  name="paymentMethodId"
-                  defaultValue={String(editBundle.financialTransaction?.payment_method_id ?? paymentMethods[0]?.id ?? "")}
-                >
-                  {paymentMethods.map((method) => (
-                    <option key={method.id} value={method.id}>
-                      {method.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="fin-type">Tipo</label>
-                <select
-                  id="fin-type"
-                  name="movementTypeId"
-                  defaultValue={String(editBundle.financialTransaction?.movement_type_id ?? movementTypes[0]?.id ?? "")}
-                >
-                  {movementTypes.map((type) => (
-                    <option key={type.id} value={type.id}>
-                      {type.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="fin-item">Item relacionado</label>
-                <select id="fin-item" name="itemId" defaultValue={String(editBundle.financialTransaction?.item_id ?? "")}>
-                  <option value="">Sem item vinculado</option>
-                  {items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field full">
-                <label htmlFor="fin-description">Descrição</label>
-                <input
-                  id="fin-description"
-                  name="description"
-                  defaultValue={editBundle.financialTransaction?.description || ""}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="fin-amount">Valor</label>
-                <input
-                  id="fin-amount"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  name="amount"
-                  defaultValue={editBundle.financialTransaction?.amount ?? ""}
-                  required
-                />
-              </div>
-              <div className="field full">
-                <label htmlFor="fin-notes">Observação</label>
-                <textarea id="fin-notes" name="notes" defaultValue={editBundle.financialTransaction?.notes || ""} />
-              </div>
-            </div>
-
-            <div className="form-actions">
-              <button className="button" type="submit">
-                {editBundle.financialTransaction ? "Salvar lançamento" : "Registrar lançamento"}
-              </button>
-              {editBundle.financialTransaction ? (
-                <Link className="secondary-button" href={buildPeriodHref("/financeiro", selected.year, selected.month, filterParams)}>
-                  Cancelar
-                </Link>
-              ) : null}
-            </div>
-            </fieldset>
-          </form>
-        </FormCard>
-
-        <FormCard
-          title={editBundle.transfer ? "Editar transferência" : "Transferência entre contas"}
-          subtitle="Ideal para pagamento do cartão, reforço de caixa ou reorganização entre contas."
-        >
-          <form
-            key={`transfer-${editBundle.transfer?.id || "new"}`}
-            action={saveTransferAction}
-            className="grid"
-          >
-            <input type="hidden" name="id" value={editBundle.transfer?.id || ""} />
-            <input type="hidden" name="year" value={selected.year} />
-            <input type="hidden" name="month" value={selected.month} />
-
-            <fieldset className="form-fieldset" disabled={selected.isClosed}>
-            <div className="form-grid">
-              <div className="field">
-                <label htmlFor="transfer-date">Data</label>
-                <input
-                  id="transfer-date"
-                  type="date"
-                  name="date"
-                  defaultValue={dateInputValue(editBundle.transfer?.movement_date)}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="transfer-amount">Valor</label>
-                <input
-                  id="transfer-amount"
-                  type="number"
-                  step="0.01"
-                  min="0.01"
-                  name="amount"
-                  defaultValue={editBundle.transfer?.amount ?? ""}
-                  required
-                />
-              </div>
-              <div className="field">
-                <label htmlFor="transfer-from">Sai de</label>
-                <select
-                  id="transfer-from"
-                  name="fromPaymentMethodId"
-                  defaultValue={String(editBundle.transfer?.from_payment_method_id ?? paymentMethods[0]?.id ?? "")}
-                >
-                  {paymentMethods.map((method) => (
-                    <option key={method.id} value={method.id}>
-                      {method.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="transfer-to">Entra em</label>
-                <select
-                  id="transfer-to"
-                  name="toPaymentMethodId"
-                  defaultValue={String(editBundle.transfer?.to_payment_method_id ?? paymentMethods[1]?.id ?? "")}
-                >
-                  {paymentMethods.map((method) => (
-                    <option key={method.id} value={method.id}>
-                      {method.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="field full">
-                <label htmlFor="transfer-description">Descrição</label>
-                <input
-                  id="transfer-description"
-                  name="description"
-                  defaultValue={editBundle.transfer?.description || "Transferência entre contas"}
-                  required
-                />
-              </div>
-              <div className="field full">
-                <label htmlFor="transfer-notes">Observação</label>
-                <textarea id="transfer-notes" name="notes" defaultValue={editBundle.transfer?.notes || ""} />
-              </div>
-            </div>
-
-            <div className="form-actions">
-              <button className="button" type="submit">
-                {editBundle.transfer ? "Salvar transferência" : "Registrar transferência"}
-              </button>
-              {editBundle.transfer ? (
-                <Link className="secondary-button" href={buildPeriodHref("/financeiro", selected.year, selected.month, filterParams)}>
-                  Cancelar
-                </Link>
-              ) : null}
-            </div>
-            </fieldset>
-          </form>
-        </FormCard>
-      </div>
-
-      <div className="columns">
-        <TableCard title="Lançamentos financeiros" subtitle="Fluxo que alimenta receita, insumos, despesas e retiradas.">
-          {transactions.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Pagamento</th>
-                  <th>Tipo</th>
-                  <th>Descrição</th>
-                  <th className="numeric">Valor</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transactions.map((transaction) => (
-                  <tr key={transaction.id}>
-                    <td>{transaction.movement_date}</td>
-                    <td>{transaction.payment_method_name}</td>
-                    <td>{transaction.movement_type_name}</td>
-                    <td>
-                      <strong>{transaction.description}</strong>
-                      {transaction.item_name ? <div className="muted">{transaction.item_name}</div> : null}
-                      {transaction.supplier_name ? (
-                        <div className="muted">
-                          {transaction.supplier_name}
-                          {transaction.invoice_number ? ` | Nota ${transaction.invoice_number}` : ""}
-                        </div>
-                      ) : null}
-                    </td>
-                    <td className="numeric">{currency(transaction.amount)}</td>
-                    <td>
-                      {selected.isClosed ? (
-                        <Pill tone="warning">Protegido</Pill>
-                      ) : transaction.purchase_id ? (
-                        <Link
-                          className="ghost-link"
-                          href={buildPeriodHref("/compras", selected.year, selected.month, {
-                            editCompra: transaction.purchase_id,
-                          })}
-                        >
-                          Editar compra
-                        </Link>
-                      ) : (
-                      <div className="inline-actions">
-                        <Link
-                          className="ghost-link"
-                          href={buildPeriodHref("/financeiro", selected.year, selected.month, {
-                            ...filterParams,
-                            editLancamento: transaction.id,
-                          })}
-                        >
-                          Editar
-                        </Link>
-                        <form action={deleteFinancialTransactionAction}>
-                          <input type="hidden" name="id" value={transaction.id} />
-                          <input type="hidden" name="year" value={selected.year} />
-                          <input type="hidden" name="month" value={selected.month} />
-                          <button className="danger-button" type="submit">
-                            Excluir
-                          </button>
-                        </form>
-                      </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="empty">Nenhum lançamento financeiro encontrado com os filtros atuais.</div>
-          )}
-        </TableCard>
-
-        <TableCard title="Transferências" subtitle="Movimentos neutros para o resultado, mas importantes para o saldo das contas.">
-          {transfers.length ? (
-            <table>
-              <thead>
-                <tr>
-                  <th>Data</th>
-                  <th>Descrição</th>
-                  <th>De</th>
-                  <th>Para</th>
-                  <th className="numeric">Valor</th>
-                  <th>Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {transfers.map((transfer) => (
-                  <tr key={transfer.id}>
-                    <td>{transfer.movement_date}</td>
-                    <td>{transfer.description}</td>
-                    <td>{transfer.from_payment_method_name}</td>
-                    <td>{transfer.to_payment_method_name}</td>
-                    <td className="numeric">{currency(transfer.amount)}</td>
-                    <td>
-                      {selected.isClosed ? (
-                        <Pill tone="warning">Protegido</Pill>
-                      ) : (
-                      <div className="inline-actions">
-                        <Link
-                          className="ghost-link"
-                          href={buildPeriodHref("/financeiro", selected.year, selected.month, {
-                            ...filterParams,
-                            editTransferencia: transfer.id,
-                          })}
-                        >
-                          Editar
-                        </Link>
-                        <form action={deleteTransferAction}>
-                          <input type="hidden" name="id" value={transfer.id} />
-                          <input type="hidden" name="year" value={selected.year} />
-                          <input type="hidden" name="month" value={selected.month} />
-                          <button className="danger-button" type="submit">
-                            Excluir
-                          </button>
-                        </form>
-                      </div>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <div className="empty">Nenhuma transferência encontrada com os filtros atuais.</div>
-          )}
-        </TableCard>
-      </div>
-    </div>
+      ) : null}
+    </>
   );
 }

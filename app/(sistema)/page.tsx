@@ -1,164 +1,165 @@
-import { MetricCard } from "@/components/metric-card";
-import { PageIntro } from "@/components/page-intro";
-import { Pill } from "@/components/pill";
-import { ReportScopeSwitch } from "@/components/report-scope-switch";
-import { TableCard } from "@/components/table-card";
-import { getDashboardSummary, getPeriodContext } from "@/lib/data";
+import Link from "next/link";
+import { DreList, TrendChart } from "@/components/charts";
+import { Alert, Badge, Card, Empty, PageHead, Stat } from "@/components/ui";
+import { getInventoryUsages, getPeriodContext, getPurchaseOverview, getReportSnapshot } from "@/lib/data";
 import type { SearchParams } from "@/lib/types";
-import { currency, quantity } from "@/lib/utils";
+import { buildPeriodHref, currency, quantity, shortMonthLabel } from "@/lib/utils";
+import { PeriodPicker, tabHref } from "./_comum";
 
-type PageProps = {
-  searchParams?: Promise<SearchParams>;
-};
+type PageProps = { searchParams?: Promise<SearchParams> };
 
-export default async function DashboardPage({ searchParams }: PageProps) {
+export default async function PainelPage({ searchParams }: PageProps) {
   const params = (await searchParams) || {};
-  const [{ selected, options, scope }, summary] = await Promise.all([
+  const monthParams = { ...params, scope: "month" };
+  const [{ selected, options }, report, usages, purchases] = await Promise.all([
     getPeriodContext(params),
-    getDashboardSummary(params),
+    getReportSnapshot(monthParams),
+    getInventoryUsages(monthParams),
+    getPurchaseOverview(monthParams),
   ]);
 
-  return (
-    <div className="grid">
-      <PageIntro
-        title="Dashboard"
-        description="Visão simples do periodo selecionado, com foco no que precisa ser acompanhado no dia a dia."
-        options={options}
-        selectedKey={`${selected.year}-${String(selected.month).padStart(2, "0")}`}
-      />
+  const s = report.selectedSummary;
+  const costs = s.cmv + s.inputs + s.expenses;
+  const margin = s.revenue > 0 ? s.netProfit / s.revenue : 0;
+  const isSnapshot = report.summarySource === "snapshot";
+  const available = report.balances.reduce(
+    (sum, row) => (row.kind === "asset" ? sum + row.final : sum - row.final),
+    0,
+  );
+  const lowStock = report.items
+    .filter((item) => item.isActive && item.lowStockThreshold > 0 && item.finalQty <= item.lowStockThreshold)
+    .sort((a, b) => a.finalQty - b.finalQty);
+  const yearRevenue = report.monthlyRows.reduce((sum, row) => sum + row.summary.revenue, 0);
+  const yearResult = report.monthlyRows.reduce((sum, row) => sum + row.summary.result, 0);
 
-      <div className="page-header" style={{ marginTop: -8, marginBottom: 0 }}>
-        <ReportScopeSwitch pathname="/" scope={scope} year={selected.year} month={selected.month} />
-        <div className="pill-row">
-          <Pill tone={summary.summarySource === "snapshot" ? "warning" : "success"}>
-            {summary.summarySource === "snapshot" ? "Historico gerencial" : "Calculo operacional"}
-          </Pill>
-        </div>
+  return (
+    <>
+      <PageHead title="Painel" description={`Resumo de ${selected.label.toLowerCase()}`}>
+        {selected.isClosed ? <Badge tone="info">Mês fechado</Badge> : <Badge tone="success">Mês aberto</Badge>}
+        <PeriodPicker options={options} selected={selected} />
+      </PageHead>
+
+      {!isSnapshot && usages.length === 0 ? (
+        <Alert
+          tone="warning"
+          title="Ainda não há contagem de estoque neste mês"
+          action={
+            <Link className="btn btn-sm" href={tabHref("/estoque", selected, "contagem")}>
+              Lançar contagem
+            </Link>
+          }
+        >
+          Sem a baixa do estoque, o CMV do mês fica zerado e o próximo mês recebe o consumo acumulado.
+        </Alert>
+      ) : null}
+      {isSnapshot ? (
+        <Alert tone="info" title="Mês com histórico resumido">
+          Este mês veio da planilha antiga só com os totais. Não há detalhe de estoque e lançamentos.
+        </Alert>
+      ) : null}
+
+      <div className="stats">
+        <Stat label="Receita" value={currency(s.revenue)} note="Vendas recebidas no mês" />
+        <Stat
+          label="Custos e despesas"
+          value={currency(costs)}
+          note={`CMV ${currency(s.cmv)} · Insumos ${currency(s.inputs)} · Despesas ${currency(s.expenses)}`}
+        />
+        <Stat
+          label={s.netProfit >= 0 ? "Lucro líquido" : "Prejuízo líquido"}
+          value={currency(s.netProfit)}
+          tone={s.netProfit >= 0 ? "pos" : "neg"}
+          note={s.revenue > 0 ? `Margem de ${(margin * 100).toFixed(1).replace(".", ",")}%` : undefined}
+        />
+        <Stat label="Retiradas" value={currency(s.withdrawals)} note="Saídas para uso pessoal" />
+        <Stat highlight label="Resultado do mês" value={currency(s.result)} note="Lucro menos retiradas" />
       </div>
 
-      <section className="metrics-grid">
-        {summary.metrics.map((metric) => (
-          <MetricCard
-            key={metric.label}
-            label={metric.label}
-            value={currency(metric.value)}
-            note={metric.note}
-          />
-        ))}
-      </section>
-
-      <section className="split">
-        <TableCard
-          title="Contas e saldo disponivel"
-          subtitle="Cada conta mostra saldo inicial, movimentacao liquida e saldo final."
+      <div className="grid-3-1">
+        <Card
+          title={`Ano de ${selected.year}`}
+          description={`Receita ${currency(yearRevenue)} · Resultado ${currency(yearResult)}`}
+          actions={
+            <Link className="btn btn-sm btn-ghost" href={buildPeriodHref("/relatorios", selected.year, selected.month, { scope: "year" })}>
+              Ver consolidado
+            </Link>
+          }
         >
-          <table>
-            <thead>
-              <tr>
-                <th>Conta</th>
-                <th>Tipo</th>
-                <th className="numeric">Inicial</th>
-                <th className="numeric">Movimentacao</th>
-                <th className="numeric">Final</th>
-              </tr>
-            </thead>
-            <tbody>
-              {summary.balances.map((balance) => (
-                <tr key={balance.paymentMethod}>
-                  <td>{balance.paymentMethod}</td>
-                  <td>
-                    <Pill tone={balance.kind === "asset" ? "success" : "warning"}>
-                      {balance.kind === "asset" ? "Disponivel" : "Passivo"}
-                    </Pill>
-                  </td>
-                  <td className="numeric">{currency(balance.opening)}</td>
-                  <td className="numeric">{currency(balance.movement)}</td>
-                  <td className="numeric">{currency(balance.final)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </TableCard>
+          <TrendChart
+            points={report.monthlyRows.map((row) => ({
+              label: shortMonthLabel(row.period.month),
+              revenue: row.summary.revenue,
+              result: row.summary.result,
+            }))}
+          />
+        </Card>
 
-        <div className="grid">
-          <TableCard
-            title={`Resumo anual ${selected.year}`}
-            subtitle="Consolidado dos meses que ja possuem historico na base."
-          >
-            <table>
-              <thead>
-                <tr>
-                  <th>Linha</th>
-                  <th className="numeric">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td>Receita</td>
-                  <td className="numeric">{currency(summary.annualTotals.revenue)}</td>
-                </tr>
-                <tr>
-                  <td>CMV</td>
-                  <td className="numeric">{currency(summary.annualTotals.cmv)}</td>
-                </tr>
-                <tr>
-                  <td>Insumos</td>
-                  <td className="numeric">{currency(summary.annualTotals.inputs)}</td>
-                </tr>
-                <tr>
-                  <td>Despesas</td>
-                  <td className="numeric">{currency(summary.annualTotals.expenses)}</td>
-                </tr>
-                <tr>
-                  <td>Lucro liquido</td>
-                  <td className="numeric">{currency(summary.annualTotals.netProfit)}</td>
-                </tr>
-                <tr>
-                  <td>Retiradas</td>
-                  <td className="numeric">{currency(summary.annualTotals.withdrawals)}</td>
-                </tr>
-                <tr>
-                  <td>Resultado</td>
-                  <td className="numeric">{currency(summary.annualTotals.result)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </TableCard>
-
-          <div className="panel">
-            <div className="page-header">
-              <div>
-                <h2>Itens com estoque baixo</h2>
-                <p>Baseado no estoque final comparado ao limite minimo configurado.</p>
+        <Card title="Saldos no fim do mês" flush>
+          <div className="list">
+            {report.balances.map((row) => (
+              <div className="list-row" key={row.paymentMethod}>
+                <span className="label">
+                  {row.paymentMethod}
+                  {row.kind === "liability" ? <span className="muted"> · a pagar</span> : null}
+                </span>
+                <span className="num">{currency(row.final)}</span>
               </div>
+            ))}
+            <div className="list-row total">
+              <span>Disponível</span>
+              <span className="num">{currency(available)}</span>
             </div>
-            <div className="list">
-              {summary.lowStockItems.length ? (
-                summary.lowStockItems.map((item) => (
-                  <div key={item.id} className="list-item">
-                    <div>
-                      <strong>{item.name}</strong>
-                      <div className="muted">{item.categoryName}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <Pill tone={item.finalQty <= 0 ? "danger" : "warning"}>
-                        {quantity(item.finalQty)} em estoque
-                      </Pill>
-                      <div className="muted">minimo {quantity(item.lowStockThreshold)}</div>
-                    </div>
-                  </div>
-                ))
-              ) : !summary.hasOperationalDetail ? (
-                <div className="empty">
-                  O periodo selecionado tem apenas historico gerencial. O alerta de estoque aparece quando houver detalhe operacional.
-                </div>
-              ) : (
-                <div className="empty">Nenhum item abaixo do limite configurado neste mes.</div>
-              )}
+            <div className="list-row">
+              <span className="label">Valor em estoque</span>
+              <span className="num">{currency(s.stockValue)}</span>
+            </div>
+            <div className="list-row">
+              <span className="label">Compras do mês</span>
+              <span className="num">
+                {purchases.purchaseCount} {purchases.purchaseCount === 1 ? "nota" : "notas"} · {currency(purchases.totalAmount)}
+              </span>
             </div>
           </div>
-        </div>
-      </section>
-    </div>
+        </Card>
+      </div>
+
+      <div className="grid-2">
+        <Card title="Resultado do mês" description="Quanto cada linha consome da receita" flush>
+          <DreList summary={s} />
+        </Card>
+
+        <Card
+          title="Abaixo do mínimo"
+          description="Itens ativos com saldo no limite do estoque mínimo cadastrado"
+          flush
+          actions={
+            <Link className="btn btn-sm btn-ghost" href={tabHref("/estoque", selected, "posicao")}>
+              Ver estoque
+            </Link>
+          }
+        >
+          {lowStock.length ? (
+            <div className="list">
+              {lowStock.slice(0, 8).map((item) => (
+                <div className="list-row" key={item.id}>
+                  <span>
+                    {item.name}
+                    <span className="sub muted">mínimo {quantity(item.lowStockThreshold)}</span>
+                  </span>
+                  <Badge tone={item.finalQty <= 0 ? "danger" : "warning"}>
+                    {item.finalQty <= 0 ? "zerado" : `${quantity(item.finalQty)} em estoque`}
+                  </Badge>
+                </div>
+              ))}
+              {lowStock.length > 8 ? (
+                <div className="list-row muted">e mais {lowStock.length - 8} itens</div>
+              ) : null}
+            </div>
+          ) : (
+            <Empty>Nenhum item abaixo do mínimo.</Empty>
+          )}
+        </Card>
+      </div>
+    </>
   );
 }

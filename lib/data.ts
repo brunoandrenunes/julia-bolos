@@ -22,7 +22,7 @@ import type {
   SupplierRecord,
   TransferRow,
 } from "@/lib/types";
-import { monthLabel } from "@/lib/utils";
+import { currentYearMonth, monthLabel } from "@/lib/utils";
 
 const { queryAll, queryOne, run, seedLookupId } = dbHelpers;
 
@@ -91,20 +91,9 @@ async function resolveSelectedPeriod(db: Db, params?: SearchParams) {
     return ensurePeriod(db, requestedYear, requestedMonth);
   }
 
-  const latest = await queryOne(db, activePeriodsSql("DESC") + " LIMIT 1");
-  if (latest) {
-    return {
-      id: numeric(latest.id),
-      year: numeric(latest.year),
-      month: numeric(latest.month),
-      label: String(latest.label),
-      isClosed: numeric(latest.is_closed) === 1,
-      closedAt: latest.closed_at == null ? null : String(latest.closed_at),
-    };
-  }
-
-  const now = new Date();
-  return ensurePeriod(db, now.getFullYear(), now.getMonth() + 1);
+  // Sem mês escolhido, abre no mês atual (horário de Brasília).
+  const now = currentYearMonth();
+  return ensurePeriod(db, now.year, now.month);
 }
 
 function activePeriodsSql(orderDirection: "ASC" | "DESC" = "DESC") {

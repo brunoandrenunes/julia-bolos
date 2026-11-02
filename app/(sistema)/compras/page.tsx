@@ -1,14 +1,7 @@
 import Link from "next/link";
-import {
-  archiveSupplierAction,
-  deletePurchaseAction,
-  reactivateSupplierAction,
-  saveSupplierAction,
-} from "@/app/actions";
-import { FormCard } from "@/components/form-card";
-import { PageIntro } from "@/components/page-intro";
-import { Pill } from "@/components/pill";
-import { TableCard } from "@/components/table-card";
+import { archiveSupplierAction, deletePurchaseAction, reactivateSupplierAction, saveSupplierAction } from "@/app/actions";
+import { ConfirmButton } from "@/components/client-ui";
+import { Alert, Badge, Card, Drawer, Empty, Flash, PageHead, PeriodHidden, Stat, Tabs } from "@/components/ui";
 import {
   getItems,
   getPaymentMethods,
@@ -21,250 +14,320 @@ import {
   getSuppliers,
 } from "@/lib/data";
 import type { SearchParams } from "@/lib/types";
-import { buildPeriodHref, currency, isoToday, quantity } from "@/lib/utils";
-import { ConfirmSubmitButton, PurchaseForm } from "@/app/(sistema)/compras/purchase-form";
+import { currency, formatDate, isoToday, quantity } from "@/lib/utils";
+import { PurchaseForm } from "./purchase-form";
+import { PeriodPicker, paramText, tabHref } from "../_comum";
 
 type PageProps = { searchParams?: Promise<SearchParams> };
 
-function paramText(params: SearchParams, key: string) {
-  const value = params[key];
-  return Array.isArray(value) ? String(value[0] || "") : String(value || "");
-}
-
 function defaultDate(year: number, month: number) {
   const today = isoToday();
-  if (today.startsWith(`${year}-${String(month).padStart(2, "0")}`)) return today;
-  return `${year}-${String(month).padStart(2, "0")}-01`;
+  const prefix = `${year}-${String(month).padStart(2, "0")}`;
+  return today.startsWith(prefix) ? today : `${prefix}-01`;
 }
 
-function confidenceLabel(confidence: "high" | "medium" | "low") {
-  if (confidence === "high") return "Base melhor";
-  if (confidence === "medium") return "Base inicial";
-  return "Poucos dados";
-}
+const CONFIDENCE = {
+  high: { label: "Boa base", tone: "success" as const },
+  medium: { label: "Base inicial", tone: "warning" as const },
+  low: { label: "Poucos dados", tone: undefined },
+};
 
-export default async function PurchasesPage({ searchParams }: PageProps) {
+export default async function ComprasPage({ searchParams }: PageProps) {
   const params = (await searchParams) || {};
   const purchaseId = Number(paramText(params, "editCompra")) || 0;
   const supplierEditId = Number(paramText(params, "editFornecedor")) || 0;
-  const [
-    periodContext,
-    items,
-    paymentMethods,
-    movementTypes,
-    suppliers,
-    purchases,
-    overview,
-    analysis,
-    purchase,
-  ] = await Promise.all([
-    getPeriodContext(params),
-    getItems(),
-    getPaymentMethods(),
-    getPurchaseMovementTypes(),
-    getSuppliers({ status: "all" }),
-    getPurchases(params),
-    getPurchaseOverview(params),
-    getPurchaseAnalysis(params),
-    getPurchaseForEdit(purchaseId),
-  ]);
-  const { selected, options } = periodContext;
+  const requestedTab = paramText(params, "aba");
+  const [{ selected, options }, items, paymentMethods, movementTypes, suppliers, purchases, overview, analysis, purchase] =
+    await Promise.all([
+      getPeriodContext(params),
+      getItems(),
+      getPaymentMethods(),
+      getPurchaseMovementTypes(),
+      getSuppliers({ status: "all" }),
+      getPurchases(params),
+      getPurchaseOverview(params),
+      getPurchaseAnalysis(params),
+      getPurchaseForEdit(purchaseId),
+    ]);
+
+  const tab = purchase ? "registrar" : ["registrar", "historico", "fornecedores", "sinais"].includes(requestedTab) ? requestedTab : "registrar";
+  const activeSuppliers = suppliers.filter((supplier) => supplier.is_active === 1 || supplier.id === purchase?.supplier_id);
   const supplierToEdit = suppliers.find((supplier) => supplier.id === supplierEditId) || null;
-  const activeSuppliers = suppliers.filter(
-    (supplier) => supplier.is_active === 1 || supplier.id === purchase?.supplier_id,
-  );
-  const filterParams = {
+  const filters = {
     supplierId: paramText(params, "supplierId") || undefined,
     destination: paramText(params, "destination") || undefined,
     q: paramText(params, "q") || undefined,
   };
-  const hasFilters = Object.values(filterParams).some(Boolean);
-  const errorMessage = paramText(params, "error");
-  const noticeMessage = paramText(params, "notice");
+  const hasFilters = Object.values(filters).some(Boolean);
 
   return (
-    <div className="grid">
-      <PageIntro
-        title="Compras"
-        description="Registre uma nota uma única vez e envie cada item para o estoque ou para o financeiro imediato."
-        options={options}
-        selectedKey={`${selected.year}-${String(selected.month).padStart(2, "0")}`}
-      />
+    <>
+      <PageHead title="Compras" description="Cada nota é lançada uma vez: os produtos vão para o estoque e o que é de uso imediato vai para o financeiro.">
+        <PeriodPicker options={options} selected={selected} />
+      </PageHead>
 
-      {errorMessage ? <div className="action-message error">{errorMessage}</div> : null}
-      {noticeMessage ? <div className="action-message success">{noticeMessage}</div> : null}
+      <Flash error={paramText(params, "error")} notice={paramText(params, "notice")} />
       {selected.isClosed ? (
-        <div className="period-lock-panel closed">
-          <div>
-            <div className="period-lock-eyebrow">Período protegido</div>
-            <h2>{selected.label} está fechado</h2>
-            <p>As compras permanecem para consulta, mas não podem ser incluídas, editadas ou excluídas.</p>
-          </div>
-          <Link className="secondary-button" href={buildPeriodHref("/financeiro", selected.year, selected.month)}>
-            Ver fechamento
-          </Link>
-        </div>
+        <Alert tone="info" title={`${selected.label} está fechado`}>
+          As compras ficam disponíveis para consulta, mas não podem ser incluídas nem alteradas.
+        </Alert>
       ) : null}
 
-      <div className="purchase-summary-grid">
-        <div className="highlight-card purchase-summary-card">
-          <span>Compras integradas</span>
-          <strong>{overview.purchaseCount}</strong>
-          <small>Novo fluxo neste período</small>
-        </div>
-        <div className="highlight-card purchase-summary-card green">
-          <span>Valor total</span>
-          <strong>{currency(overview.totalAmount)}</strong>
-          <small>Todos os destinos</small>
-        </div>
-        <div className="highlight-card purchase-summary-card amber">
-          <span>Para estoque</span>
-          <strong>{currency(overview.inventoryAmount)}</strong>
-          <small>Vira entrada e depois CMV</small>
-        </div>
-        <div className="highlight-card purchase-summary-card coral">
-          <span>Consumo e despesas</span>
-          <strong>{currency(overview.financialAmount)}</strong>
-          <small>Vai direto ao financeiro</small>
-        </div>
+      <div className="stats">
+        <Stat label="Notas no mês" value={String(overview.purchaseCount)} />
+        <Stat label="Total comprado" value={currency(overview.totalAmount)} />
+        <Stat label="Para o estoque" value={currency(overview.inventoryAmount)} note="Vira custo quando for usado (CMV)" />
+        <Stat label="Uso imediato e despesas" value={currency(overview.financialAmount)} note="Vai direto para o resultado" />
       </div>
 
-      <FormCard
-        title={purchase ? `Editar compra ${purchase.id}` : "Nova compra completa"}
-        subtitle="Fornecedor, data e pagamento são informados uma vez. O sistema gera todos os lançamentos automaticamente."
-      >
-        {!activeSuppliers.length ? (
-          <div className="note-box">Cadastre o primeiro fornecedor abaixo antes de registrar uma compra.</div>
-        ) : null}
-        <PurchaseForm
-          year={selected.year}
-          month={selected.month}
-          defaultDate={defaultDate(selected.year, selected.month)}
-          disabled={selected.isClosed}
-          suppliers={activeSuppliers}
-          paymentMethods={paymentMethods}
-          movementTypes={movementTypes}
-          items={items}
-          purchase={purchase}
-        />
-        {purchase ? (
-          <div className="form-actions">
-            <Link className="secondary-button" href={buildPeriodHref("/compras", selected.year, selected.month, filterParams)}>
-              Cancelar edição
-            </Link>
-          </div>
-        ) : null}
-      </FormCard>
+      <Tabs
+        active={tab}
+        tabs={[
+          { key: "registrar", label: purchase ? `Editando compra ${purchase.id}` : "Registrar compra", href: tabHref("/compras", selected, "registrar") },
+          { key: "historico", label: "Compras do mês", count: purchases.length, href: tabHref("/compras", selected, "historico") },
+          { key: "fornecedores", label: "Fornecedores", count: overview.activeSupplierCount, href: tabHref("/compras", selected, "fornecedores") },
+          { key: "sinais", label: "Sinais de reposição", href: tabHref("/compras", selected, "sinais") },
+        ]}
+      />
 
-      <div className="columns purchase-support-columns">
-        <FormCard
-          title={supplierToEdit ? "Editar fornecedor" : "Cadastrar fornecedor"}
-          subtitle="O fornecedor será escolhido apenas uma vez em cada compra."
+      {tab === "registrar" ? (
+        <Card
+          title={purchase ? `Editar compra ${purchase.id} — ${purchase.supplier_name}` : "Nova compra"}
+          description="Informe data, fornecedor e pagamento uma vez e depois os itens da nota."
+          actions={
+            purchase ? (
+              <Link className="btn btn-sm" href={tabHref("/compras", selected, "historico")}>
+                Cancelar edição
+              </Link>
+            ) : null
+          }
         >
-          <form action={saveSupplierAction} className="grid">
-            <input type="hidden" name="id" value={supplierToEdit?.id || ""} />
-            <input type="hidden" name="year" value={selected.year} />
-            <input type="hidden" name="month" value={selected.month} />
-            <div className="form-grid">
-              <div className="field full">
-                <label htmlFor="supplier-name">Nome</label>
-                <input id="supplier-name" name="name" defaultValue={supplierToEdit?.name || ""} required />
-              </div>
-              <div className="field full">
-                <label htmlFor="supplier-contact">Contato (opcional)</label>
-                <input id="supplier-contact" name="contact" defaultValue={supplierToEdit?.contact || ""} />
-              </div>
-              <div className="field full">
-                <label htmlFor="supplier-notes">Observação</label>
-                <textarea id="supplier-notes" name="notes" defaultValue={supplierToEdit?.notes || ""} />
-              </div>
-            </div>
-            <div className="form-actions">
-              <button className="button" type="submit">{supplierToEdit ? "Salvar fornecedor" : "Adicionar fornecedor"}</button>
-              {supplierToEdit ? (
-                <Link className="secondary-button" href={buildPeriodHref("/compras", selected.year, selected.month)}>
-                  Cancelar
-                </Link>
-              ) : null}
-            </div>
-          </form>
-        </FormCard>
+          {!activeSuppliers.length ? (
+            <Alert tone="warning">Cadastre um fornecedor na aba Fornecedores antes de registrar a primeira compra.</Alert>
+          ) : null}
+          <PurchaseForm
+            key={purchase?.id || "nova"}
+            year={selected.year}
+            month={selected.month}
+            defaultDate={defaultDate(selected.year, selected.month)}
+            disabled={selected.isClosed}
+            suppliers={activeSuppliers}
+            paymentMethods={paymentMethods}
+            movementTypes={movementTypes}
+            items={items}
+            purchase={purchase}
+          />
+        </Card>
+      ) : null}
 
-        <TableCard title={`Fornecedores (${overview.activeSupplierCount} ativos)`} subtitle="Arquivar não apaga o histórico das compras.">
-          {suppliers.length ? (
-            <table>
-              <thead><tr><th>Fornecedor</th><th>Contato</th><th>Ações</th></tr></thead>
-              <tbody>
+      {tab === "historico" ? (
+        <Card title={`Compras de ${selected.label.toLowerCase()}`} flush>
+          <form action="/compras" className="filters">
+            <PeriodHidden year={selected.year} month={selected.month} aba="historico" />
+            <div className="field">
+              <label htmlFor="f-supplier">Fornecedor</label>
+              <select id="f-supplier" name="supplierId" defaultValue={filters.supplierId || ""}>
+                <option value="">Todos</option>
                 {suppliers.map((supplier) => (
-                  <tr key={supplier.id}>
-                    <td><strong>{supplier.name}</strong>{supplier.is_active ? null : <div><Pill tone="warning">Arquivado</Pill></div>}</td>
-                    <td>{supplier.contact || "-"}</td>
-                    <td>
-                      <div className="inline-actions">
-                        <Link className="ghost-link" href={buildPeriodHref("/compras", selected.year, selected.month, { editFornecedor: supplier.id })}>Editar</Link>
-                        <form action={supplier.is_active ? archiveSupplierAction : reactivateSupplierAction}>
-                          <input type="hidden" name="id" value={supplier.id} />
-                          <input type="hidden" name="year" value={selected.year} />
-                          <input type="hidden" name="month" value={selected.month} />
-                          <button className="secondary-button" type="submit">{supplier.is_active ? "Arquivar" : "Reativar"}</button>
-                        </form>
-                      </div>
-                    </td>
-                  </tr>
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
                 ))}
-              </tbody>
-            </table>
-          ) : <div className="empty">Nenhum fornecedor cadastrado.</div>}
-        </TableCard>
-      </div>
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="f-dest">Destino</label>
+              <select id="f-dest" name="destination" defaultValue={filters.destination || ""}>
+                <option value="">Todos</option>
+                <option value="inventory">Estoque</option>
+                <option value="financial">Uso imediato</option>
+              </select>
+            </div>
+            <div className="field grow">
+              <label htmlFor="f-q">Buscar</label>
+              <input id="f-q" name="q" defaultValue={filters.q || ""} placeholder="Nota, item ou observação" />
+            </div>
+            <button className="btn" type="submit">Filtrar</button>
+            {hasFilters ? (
+              <Link className="btn btn-ghost" href={tabHref("/compras", selected, "historico")}>
+                Limpar
+              </Link>
+            ) : null}
+          </form>
+          {purchases.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Fornecedor</th>
+                    <th>Pagamento</th>
+                    <th className="num">Itens</th>
+                    <th className="num">Estoque</th>
+                    <th className="num">Uso imediato</th>
+                    <th className="num">Total</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchases.map((row) => (
+                    <tr key={row.id}>
+                      <td>{formatDate(row.purchase_date)}</td>
+                      <td>
+                        <strong>{row.supplier_name}</strong>
+                        {row.invoice_number ? <span className="sub">Nota {row.invoice_number}</span> : null}
+                      </td>
+                      <td>{row.payment_method_name}</td>
+                      <td className="num">{row.line_count}</td>
+                      <td className="num">{currency(row.inventory_amount)}</td>
+                      <td className="num">{currency(row.financial_amount)}</td>
+                      <td className="num"><strong>{currency(row.total_amount)}</strong></td>
+                      <td>
+                        {selected.isClosed ? (
+                          <Badge>protegido</Badge>
+                        ) : (
+                          <div className="row-actions">
+                            <Link className="btn btn-sm btn-ghost" href={tabHref("/compras", selected, "registrar", { editCompra: row.id })}>
+                              Editar
+                            </Link>
+                            <form action={deletePurchaseAction}>
+                              <input type="hidden" name="id" value={row.id} />
+                              <PeriodHidden year={selected.year} month={selected.month} aba="historico" />
+                              <ConfirmButton message="Excluir esta compra? As entradas de estoque e os lançamentos dela também serão removidos.">
+                                Excluir
+                              </ConfirmButton>
+                            </form>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty>{hasFilters ? "Nenhuma compra com esses filtros." : "Nenhuma compra registrada neste mês."}</Empty>
+          )}
+        </Card>
+      ) : null}
 
-      <div className="panel">
-        <div className="page-header">
-          <div><h2>Filtros das compras</h2><p>Localize uma nota pelo fornecedor, destino ou descrição.</p></div>
-          {hasFilters ? <Link className="secondary-button" href={buildPeriodHref("/compras", selected.year, selected.month)}>Limpar filtros</Link> : null}
-        </div>
-        <form action="/compras" className="form-grid three">
-          <input type="hidden" name="year" value={selected.year} />
-          <input type="hidden" name="month" value={selected.month} />
-          <div className="field"><label htmlFor="purchase-filter-supplier">Fornecedor</label><select id="purchase-filter-supplier" name="supplierId" defaultValue={filterParams.supplierId || ""}><option value="">Todos</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></div>
-          <div className="field"><label htmlFor="purchase-filter-destination">Destino</label><select id="purchase-filter-destination" name="destination" defaultValue={filterParams.destination || ""}><option value="">Todos</option><option value="inventory">Estoque</option><option value="financial">Financeiro imediato</option></select></div>
-          <div className="field"><label htmlFor="purchase-filter-q">Buscar</label><input id="purchase-filter-q" name="q" defaultValue={filterParams.q || ""} placeholder="Nota, item ou observação" /></div>
-          <div className="field"><label>&nbsp;</label><button className="button" type="submit">Aplicar filtros</button></div>
-        </form>
-      </div>
+      {tab === "fornecedores" ? (
+        <>
+          <Drawer title={supplierToEdit ? `Editar ${supplierToEdit.name}` : "Novo fornecedor"} open={Boolean(supplierToEdit)}>
+            <form action={saveSupplierAction} className="form" key={supplierToEdit?.id || "novo"}>
+              <input type="hidden" name="id" value={supplierToEdit?.id || ""} />
+              <PeriodHidden year={selected.year} month={selected.month} aba="fornecedores" />
+              <div className="fields">
+                <div className="field">
+                  <label htmlFor="s-name">Nome</label>
+                  <input id="s-name" name="name" defaultValue={supplierToEdit?.name || ""} required />
+                </div>
+                <div className="field">
+                  <label htmlFor="s-contact">Contato (opcional)</label>
+                  <input id="s-contact" name="contact" defaultValue={supplierToEdit?.contact || ""} />
+                </div>
+                <div className="field wide">
+                  <label htmlFor="s-notes">Observação (opcional)</label>
+                  <input id="s-notes" name="notes" defaultValue={supplierToEdit?.notes || ""} />
+                </div>
+              </div>
+              <div className="form-actions">
+                <button className="btn btn-primary" type="submit">Salvar fornecedor</button>
+                {supplierToEdit ? (
+                  <Link className="btn btn-ghost" href={tabHref("/compras", selected, "fornecedores")}>Cancelar</Link>
+                ) : null}
+              </div>
+            </form>
+          </Drawer>
 
-      <TableCard title="Compras do período" subtitle="Cada compra mantém seus lançamentos de estoque e financeiro sincronizados.">
-        {purchases.length ? (
-          <table>
-            <thead><tr><th>Data</th><th>Fornecedor</th><th>Nota</th><th>Pagamento</th><th>Itens</th><th className="numeric">Estoque</th><th className="numeric">Imediato</th><th className="numeric">Total</th><th>Ações</th></tr></thead>
-            <tbody>
-              {purchases.map((row) => (
-                <tr key={row.id}>
-                  <td>{row.purchase_date}</td><td><strong>{row.supplier_name}</strong></td><td>{row.invoice_number || "-"}</td><td>{row.payment_method_name}</td><td>{row.line_count}</td><td className="numeric">{currency(row.inventory_amount)}</td><td className="numeric">{currency(row.financial_amount)}</td><td className="numeric"><strong>{currency(row.total_amount)}</strong></td>
-                  <td>{selected.isClosed ? <Pill tone="warning">Protegido</Pill> : <div className="inline-actions"><Link className="ghost-link" href={buildPeriodHref("/compras", selected.year, selected.month, { ...filterParams, editCompra: row.id })}>Editar</Link><form action={deletePurchaseAction}><input type="hidden" name="id" value={row.id} /><input type="hidden" name="year" value={selected.year} /><input type="hidden" name="month" value={selected.month} /><ConfirmSubmitButton>Excluir</ConfirmSubmitButton></form></div>}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <div className="empty">Nenhuma compra integrada neste período. Os lançamentos antigos continuam preservados nas telas originais.</div>}
-      </TableCard>
+          <Card title="Fornecedores" description="Arquivar tira da lista de compras, mas mantém o histórico." flush>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Fornecedor</th>
+                    <th>Contato</th>
+                    <th>Situação</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {suppliers.map((supplier) => (
+                    <tr key={supplier.id}>
+                      <td><strong>{supplier.name}</strong>{supplier.notes ? <span className="sub">{supplier.notes}</span> : null}</td>
+                      <td>{supplier.contact || "—"}</td>
+                      <td>{supplier.is_active ? <Badge tone="success">ativo</Badge> : <Badge>arquivado</Badge>}</td>
+                      <td>
+                        <div className="row-actions">
+                          <Link className="btn btn-sm btn-ghost" href={tabHref("/compras", selected, "fornecedores", { editFornecedor: supplier.id })}>
+                            Editar
+                          </Link>
+                          <form action={supplier.is_active ? archiveSupplierAction : reactivateSupplierAction}>
+                            <input type="hidden" name="id" value={supplier.id} />
+                            <PeriodHidden year={selected.year} month={selected.month} aba="fornecedores" />
+                            <button className="btn btn-sm btn-ghost" type="submit">{supplier.is_active ? "Arquivar" : "Reativar"}</button>
+                          </form>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </>
+      ) : null}
 
-      <TableCard title="Sinais para planejar compras" subtitle="Leitura preliminar dos meses com contagem. Não é uma ordem automática de compra.">
-        <div className="analysis-caution">
-          <strong>{analysis.isCurrentPeriodPartial ? "Contagem parcial" : "Contagem do período concluída"}</strong>
-          <span>{analysis.latestCountDate ? `Última baixa considerada: ${analysis.latestCountDate}.` : "Ainda não há baixa neste período."}</span>
-        </div>
-        {analysis.insights.length ? (
-          <table className="zebra-table">
-            <thead><tr><th>Produto</th><th className="numeric">Datas de compra</th><th className="numeric">Recompras em até 7 dias</th><th className="numeric">Média por mês com contagem</th><th className="numeric">Saldo teórico</th><th>Confiança</th></tr></thead>
-            <tbody>
-              {analysis.insights.map((insight) => (
-                <tr key={insight.itemId}><td><strong>{insight.itemName}</strong><div className="muted">Preço observado: {currency(insight.minimumUnitPrice)} a {currency(insight.maximumUnitPrice)}</div></td><td className="numeric">{insight.purchaseDays}</td><td className="numeric">{insight.closePurchaseIntervals}</td><td className="numeric">{quantity(insight.averageMonthlyUsage)}</td><td className="numeric">{quantity(insight.currentQuantity)}</td><td><Pill tone={insight.confidence === "high" ? "success" : "warning"}>{confidenceLabel(insight.confidence)}</Pill></td></tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <div className="empty">Ainda não há histórico suficiente para gerar sinais.</div>}
-      </TableCard>
-    </div>
+      {tab === "sinais" ? (
+        <Card
+          title="Sinais de reposição"
+          description="Produtos comprados várias vezes em intervalos curtos — candidatos a compra maior e menos idas ao mercado. Não é uma ordem de compra."
+          flush
+        >
+          <div className="filters">
+            <span className="muted">
+              {analysis.latestCountDate
+                ? `Última contagem considerada: ${formatDate(analysis.latestCountDate)}${analysis.isCurrentPeriodPartial ? " (mês ainda sem contagem final)" : ""}.`
+                : "Ainda não há contagem de estoque neste mês; a média usa os meses anteriores."}
+            </span>
+          </div>
+          {analysis.insights.length ? (
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Produto</th>
+                    <th className="num">Dias de compra no ano</th>
+                    <th className="num">Recompras em até 7 dias</th>
+                    <th className="num">Consumo médio/mês</th>
+                    <th className="num">Saldo atual</th>
+                    <th>Confiança</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {analysis.insights.map((insight) => (
+                    <tr key={insight.itemId}>
+                      <td>
+                        <strong>{insight.itemName}</strong>
+                        <span className="sub">
+                          Preço pago: {currency(insight.minimumUnitPrice)} a {currency(insight.maximumUnitPrice)}
+                        </span>
+                      </td>
+                      <td className="num">{insight.purchaseDays}</td>
+                      <td className="num">{insight.closePurchaseIntervals}</td>
+                      <td className="num">{quantity(insight.averageMonthlyUsage)}</td>
+                      <td className="num">{quantity(insight.currentQuantity)}</td>
+                      <td><Badge tone={CONFIDENCE[insight.confidence].tone}>{CONFIDENCE[insight.confidence].label}</Badge></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <Empty>Ainda não há histórico suficiente.</Empty>
+          )}
+        </Card>
+      ) : null}
+    </>
   );
 }

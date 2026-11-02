@@ -110,12 +110,12 @@ export default function LoginPage() {
 
   return (
     <main className="login-page">
-      <div className="login-card form-card">
-        <div className="brand" style={{ marginBottom: 20 }}>
+      <div className="card login-card">
+        <div className="brand">
           <div className="brand-mark">JR</div>
           <div>
-            <h2>Julia Ronsoni Bolos</h2>
-            <p>Acesso restrito</p>
+            <strong>Julia Ronsoni Bolos</strong>
+            <span>Acesso restrito</span>
           </div>
         </div>
 
@@ -131,7 +131,7 @@ export default function LoginPage() {
               <label htmlFor="senha">Senha</label>
               <input id="senha" type="password" autoComplete="current-password" required value={senha} onChange={(e) => setSenha(e.target.value)} />
             </div>
-            <button className="button" type="submit" disabled={ocupado}>
+            <button className="btn btn-primary" type="submit" disabled={ocupado}>
               {ocupado ? "Entrando…" : "Entrar"}
             </button>
           </form>
@@ -151,7 +151,7 @@ export default function LoginPage() {
               <label htmlFor="codigo">Código de 6 dígitos mostrado no app</label>
               <input id="codigo" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required value={codigo} onChange={(e) => setCodigo(e.target.value)} />
             </div>
-            <button className="button" type="submit" disabled={ocupado}>
+            <button className="btn btn-primary" type="submit" disabled={ocupado}>
               Confirmar e entrar
             </button>
           </form>
@@ -163,10 +163,10 @@ export default function LoginPage() {
               <label htmlFor="codigo">Código do app autenticador</label>
               <input id="codigo" inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" required autoFocus value={codigo} onChange={(e) => setCodigo(e.target.value)} />
             </div>
-            <button className="button" type="submit" disabled={ocupado}>
+            <button className="btn btn-primary" type="submit" disabled={ocupado}>
               Entrar
             </button>
-            <button className="secondary-button" type="button" onClick={sair}>
+            <button className="btn" type="button" onClick={sair}>
               Usar outro e-mail
             </button>
           </form>
@@ -175,7 +175,7 @@ export default function LoginPage() {
         {etapa === "negado" ? (
           <div className="login-form">
             <p>Este usuário não tem acesso ao sistema.</p>
-            <button className="secondary-button" type="button" onClick={sair}>
+            <button className="btn" type="button" onClick={sair}>
               Sair
             </button>
           </div>
