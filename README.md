@@ -18,7 +18,8 @@ Sistema web do negócio: estoque, compras por nota, financeiro, fechamento mensa
 ## Estrutura
 
 ```text
-app/(sistema)/   telas internas: Painel, Compras, Estoque, Financeiro, Relatórios (abas via ?aba=)
+app/(sistema)/   telas internas: Painel, Compras, Estoque, Reposição, Financeiro, Relatórios (abas via ?aba=)
+lib/analise.ts   contagem física em lote, reposição (mínimo/alvo pelo histórico) e dados dos relatórios
 components/ui.tsx, client-ui.tsx, charts.tsx  peças visuais (cartões, abas, busca de itens, gráficos)
 app/login/       login com senha + autenticador
 app/api/         exportação CSV e backup em Excel

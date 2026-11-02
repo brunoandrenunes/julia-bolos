@@ -11,5 +11,7 @@
 - Migrações em `supabase/migrations`. Carga do sistema antigo: `node scripts/importar-sqlite.mjs <arquivo> [--substituir]` (transação única, confere contagens e somas).
 - Sistema antigo (local, sql.js): `D:\Bruno\OneDrive\Bruno\Julia Ronsoni Bolos\2026\Sistema\2026-04-21-files-mentioned-by-the-user-04`. Não alterar o banco de lá; depois da virada vira só consulta.
 - Dados reais nunca vão para o GitHub (`data/`, `*.sqlite`, `.env*` ignorados).
+- Decisões do Bruno (02/11): itens ficam separados por embalagem comprada (creme de leite 200 g × 1 kg depende da promoção; a Julia conta por embalagem). Ovos só por unidade ("Ovo - 1Dz" arquivado). Mínimos de estoque devem vir do histórico (tela Reposição), não de chute. Tema claro é o padrão.
+- Reposição (`lib/analise.ts`): consumo diário = baixas ÷ dias entre contagens (contagens a ≤7 dias viram uma; janela 210 dias); mínimo = consumo × 7 dias + z·σ·7; alvo = mínimo + consumo × ciclo (padrão 14 dias). Salvos em `items.low_stock_threshold`, `target_stock`, `reorder_cycle_days`.
 - Regras de negócio: baixas de estoque são contagens físicas (1–2 por mês), não consumo diário. Compras pela aba Compras geram entradas de estoque e lançamentos financeiros vinculados. Jan–mar/2026 só como resumo mensal (`period_snapshots`).
 - Antes de mexer em dados: backup (botão "Baixar backup completo" ou export), e comparar quantidades antes/depois.
