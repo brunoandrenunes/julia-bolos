@@ -20,6 +20,7 @@ import {
   setSupplierActive,
   setPeriodClosed,
 } from "@/lib/data";
+import { applyReplenishment, registerPhysicalCount } from "@/lib/analise";
 import { buildPeriodHref, clampNumber, cleanText, currentYearMonth } from "@/lib/utils";
 
 // Depois de gravar, volta para a mesma tela, mês e aba de onde o formulário veio.
@@ -252,4 +253,40 @@ export async function reopenPeriodAction(formData: FormData) {
   const month = Number(formData.get("month"));
   await runPeriodMutation(formData, "/financeiro", () => setPeriodClosed({ year, month, closed: false }));
   done(formData, "/financeiro", "Mês reaberto para ajustes. Lembre de fechar de novo depois.");
+}
+
+export async function registerCountAction(formData: FormData) {
+  const counts: { itemId: number; counted: number }[] = [];
+  formData.forEach((value, key) => {
+    if (key.startsWith("contado_") && `${value}`.trim() !== "") {
+      counts.push({ itemId: Number(key.slice(8)), counted: clampNumber(String(value).replace(",", "."), -1) });
+    }
+  });
+  if (!counts.length) {
+    redirect(getPeriodTarget(formData, "/estoque", { error: "Informe a quantidade contada de pelo menos um item." }));
+  }
+  let result = { created: 0, surplus: [] as string[] };
+  await runPeriodMutation(formData, "/estoque", async () => {
+    result = await registerPhysicalCount({ date: cleanText(formData.get("date")), counts });
+  });
+  formData.set("aba", "contagem");
+  const surplus = result.surplus.length
+    ? ` Atenção: ${result.surplus.length} item(ns) com mais do que o sistema esperava — confira se falta lançar alguma compra: ${result.surplus.join(", ")}.`
+    : "";
+  done(formData, "/estoque", `Contagem lançada: ${result.created} baixa(s) registrada(s).${surplus}`);
+}
+
+export async function applyReplenishmentAction(formData: FormData) {
+  const ids = formData.getAll("aplicar").map(Number).filter(Boolean);
+  if (!ids.length) {
+    redirect(getPeriodTarget(formData, "/reposicao", { error: "Marque pelo menos um item para salvar." }));
+  }
+  const rows = ids.map((itemId) => ({
+    itemId,
+    min: clampNumber(formData.get(`min_${itemId}`), -1),
+    target: clampNumber(formData.get(`alvo_${itemId}`), -1),
+    cycle: Number(formData.get(`ciclo_${itemId}`)) || null,
+  }));
+  await runPeriodMutation(formData, "/reposicao", () => applyReplenishment(rows));
+  done(formData, "/reposicao", `Mínimo e estoque-alvo salvos para ${rows.length} item(ns).`);
 }

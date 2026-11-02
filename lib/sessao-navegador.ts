@@ -36,6 +36,12 @@ function sessaoVencida() {
 }
 
 export async function sairDoSistema() {
+  try {
+    localStorage.removeItem(K_INICIO);
+    localStorage.removeItem(K_ATIV);
+  } catch {
+    // sem armazenamento
+  }
   await createSupabaseBrowser().auth.signOut();
   window.location.href = "/login";
 }

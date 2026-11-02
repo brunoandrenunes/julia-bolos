@@ -44,7 +44,7 @@ export default async function PainelPage({ searchParams }: PageProps) {
           tone="warning"
           title="Ainda não há contagem de estoque neste mês"
           action={
-            <Link className="btn btn-sm" href={tabHref("/estoque", selected, "contagem")}>
+            <Link className="btn btn-sm" href={tabHref("/estoque", selected, "contar")}>
               Lançar contagem
             </Link>
           }

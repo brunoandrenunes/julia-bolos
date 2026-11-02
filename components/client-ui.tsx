@@ -130,3 +130,25 @@ export function ConfirmButton({
     </button>
   );
 }
+
+// Copia um texto pronto (ex.: lista de compras) para colar no WhatsApp.
+export function CopyButton({ text, label = "Copiar lista" }: { text: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="btn btn-sm"
+      type="button"
+      onClick={async () => {
+        try {
+          await navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        } catch {
+          window.prompt("Copie a lista:", text);
+        }
+      }}
+    >
+      {copied ? "Copiado!" : label}
+    </button>
+  );
+}

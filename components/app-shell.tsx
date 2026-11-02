@@ -1,6 +1,7 @@
 import { Suspense } from "react";
 import { Navigation } from "@/components/navigation";
 import { SessionGuard } from "@/components/session-guard";
+import { ThemeSwitch } from "@/components/theme-switch";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   return (
@@ -17,6 +18,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Navigation />
         </Suspense>
         <div className="sidebar-footer">
+          <ThemeSwitch />
           <SessionGuard />
         </div>
       </aside>

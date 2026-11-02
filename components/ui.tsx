@@ -16,7 +16,9 @@ type IconName =
   | "info"
   | "download"
   | "trash"
-  | "x";
+  | "x"
+  | "list"
+  | "copy";
 
 const ICON_PATHS: Record<IconName, string> = {
   home: "M3 10.5 12 3l9 7.5M5 9v11h5v-6h4v6h5V9",
@@ -32,6 +34,8 @@ const ICON_PATHS: Record<IconName, string> = {
   download: "M12 4v12M7 11l5 5 5-5M4 20h16",
   trash: "M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13",
   x: "M18 6 6 18M6 6l12 12",
+  list: "M9 6h12M9 12h12M9 18h12M4 6h.01M4 12h.01M4 18h.01",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
 };
 
 export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {

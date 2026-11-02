@@ -81,7 +81,7 @@ function parseScope(params?: SearchParams): ReportScope {
   return params?.scope === "year" ? "year" : "month";
 }
 
-async function resolveSelectedPeriod(db: Db, params?: SearchParams) {
+export async function resolveSelectedPeriod(db: Db, params?: SearchParams) {
   const requestedYear = Number(params?.year);
   const requestedMonth = Number(params?.month);
   if (
@@ -145,7 +145,7 @@ async function ensurePeriod(db: Db, year: number, month: number): Promise<Period
   return ensurePeriod(db, year, month);
 }
 
-async function getPeriodsForYear(db: Db, year: number): Promise<PeriodOption[]> {
+export async function getPeriodsForYear(db: Db, year: number): Promise<PeriodOption[]> {
   return (await queryAll(
     db,
     `
@@ -223,7 +223,7 @@ async function getStockMovementsByPeriod(db: Db) {
   };
 }
 
-async function getItemMetricsInternal(db: Db, periodId: number) {
+export async function getItemMetricsInternal(db: Db, periodId: number) {
   const targetPeriod = await queryOne(
     db,
     "SELECT id, year, month FROM periods WHERE id = ?",
@@ -681,7 +681,7 @@ async function hasOperationalActivity(db: Db, periodId: number) {
   return numeric(row?.total) > 0;
 }
 
-async function getResolvedPeriodData(db: Db, periodId: number) {
+export async function getResolvedPeriodData(db: Db, periodId: number) {
   const dynamicData = await getDynamicPeriodSummary(db, periodId);
   const snapshot = await getSnapshotSummary(db, periodId);
   const importedOperationalDetail = await hasImportedOperationalDetail(db, periodId);
@@ -2131,7 +2131,7 @@ async function assertRecordPeriodOpen(db: Db, table: PeriodRecordTable, recordId
   });
 }
 
-async function periodFromDate(db: Db, date: string) {
+export async function periodFromDate(db: Db, date: string) {
   const { year, month } = parseMovementDate(date);
   const period = await ensurePeriod(db, year, month);
   assertPeriodOpen(period);

@@ -22,11 +22,13 @@ import {
 } from "@/lib/data";
 import type { SearchParams } from "@/lib/types";
 import { currency, formatDate, isoToday, quantity } from "@/lib/utils";
+import { getCountSheet } from "@/lib/analise";
+import { CountSheet } from "./count-sheet";
 import { PeriodPicker, paramText, tabHref } from "../_comum";
 
 type PageProps = { searchParams?: Promise<SearchParams> };
 
-const TABS = ["posicao", "contagem", "entradas", "itens"] as const;
+const TABS = ["posicao", "contar", "contagem", "entradas", "itens"] as const;
 
 function lastDayOfMonth(year: number, month: number) {
   const today = isoToday();
@@ -56,6 +58,10 @@ export default async function EstoquePage({ searchParams }: PageProps) {
     getEditBundle(params),
   ]);
 
+  const countDate = /^\d{4}-\d{2}-\d{2}$/.test(paramText(params, "data"))
+    ? paramText(params, "data")
+    : lastDayOfMonth(selected.year, selected.month);
+  const countRows = tab === "contar" ? await getCountSheet(params, countDate) : [];
   const search = paramText(params, "q");
   const category = paramText(params, "categoria");
   const showAll = paramText(params, "todos") === "1";
@@ -99,7 +105,8 @@ export default async function EstoquePage({ searchParams }: PageProps) {
         active={tab}
         tabs={[
           { key: "posicao", label: "Posição", href: tabHref("/estoque", selected, "posicao") },
-          { key: "contagem", label: "Contagem e baixas", count: usages.length, href: tabHref("/estoque", selected, "contagem") },
+          { key: "contar", label: "Contagem física", href: tabHref("/estoque", selected, "contar") },
+          { key: "contagem", label: "Baixas lançadas", count: usages.length, href: tabHref("/estoque", selected, "contagem") },
           { key: "entradas", label: "Entradas", count: entries.length, href: tabHref("/estoque", selected, "entradas") },
           { key: "itens", label: "Itens", count: items.length, href: tabHref("/estoque", selected, "itens") },
         ]}
@@ -177,13 +184,35 @@ export default async function EstoquePage({ searchParams }: PageProps) {
         </Card>
       ) : null}
 
+      {tab === "contar" ? (
+        <Card
+          title="Contagem física"
+          description="Conte o que sobrou de cada item e digite abaixo. O sistema calcula o consumo (baixa) e o custo."
+          actions={
+            <form action="/estoque" className="form-actions">
+              <PeriodHidden year={selected.year} month={selected.month} aba="contar" />
+              <div className="field">
+                <input type="date" name="data" defaultValue={countDate} aria-label="Data da contagem" />
+              </div>
+              <button className="btn btn-sm" type="submit">Trocar data</button>
+            </form>
+          }
+        >
+          {locked ? (
+            <Alert tone="info">Mês fechado: a contagem fica disponível só para consulta.</Alert>
+          ) : (
+            <CountSheet rows={countRows} date={countDate} year={selected.year} month={selected.month} disabled={locked} />
+          )}
+        </Card>
+      ) : null}
+
       {tab === "contagem" ? (
         <>
           {!locked ? (
             <Drawer
-              title={usage ? `Editar baixa de ${usage.item_name}` : "Nova baixa de estoque"}
-              hint="consumo apurado na contagem física"
-              open={Boolean(usage) || usages.length === 0}
+              title={usage ? `Editar baixa de ${usage.item_name}` : "Baixa avulsa de um item"}
+              hint="para a contagem completa use a aba Contagem física"
+              open={Boolean(usage)}
             >
               <form action={saveInventoryUsageAction} className="form" key={usage?.id || "nova"}>
                 <input type="hidden" name="id" value={usage?.id || ""} />
@@ -253,7 +282,7 @@ export default async function EstoquePage({ searchParams }: PageProps) {
                 </table>
               </div>
             ) : (
-              <Empty>Nenhuma baixa neste mês. Depois da contagem física, lance aqui o consumo de cada item.</Empty>
+              <Empty>Nenhuma baixa neste mês. Use a aba Contagem física para lançar o consumo de todos os itens de uma vez.</Empty>
             )}
           </Card>
         </>

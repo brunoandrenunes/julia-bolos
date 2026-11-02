@@ -95,3 +95,34 @@ export function DreList({ summary }: { summary: PeriodSummary }) {
     </div>
   );
 }
+
+// Ranking em barras horizontais, com o valor escrito ao lado (sem depender de cor).
+export function HBars({
+  rows,
+  format = "currency",
+  color = "var(--series-1)",
+}: {
+  rows: { label: string; value: number; sub?: string }[];
+  format?: "currency" | "number";
+  color?: string;
+}) {
+  const max = Math.max(...rows.map((row) => Math.abs(row.value)), 1);
+  return (
+    <div className="hbars">
+      {rows.map((row) => (
+        <div className="hbar" key={row.label}>
+          <div className="hbar-label" title={row.label}>
+            {row.label}
+            {row.sub ? <span className="sub">{row.sub}</span> : null}
+          </div>
+          <div className="hbar-track">
+            <div className="hbar-fill" style={{ width: `${(Math.abs(row.value) / max) * 100}%`, background: color }} />
+          </div>
+          <div className="hbar-value">
+            {format === "currency" ? currency(row.value) : new Intl.NumberFormat("pt-BR").format(row.value)}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
