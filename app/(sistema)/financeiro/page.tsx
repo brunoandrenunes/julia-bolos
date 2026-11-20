@@ -3,7 +3,9 @@ import {
   closePeriodAction,
   deleteFinancialTransactionAction,
   deleteTransferAction,
+  importStatementAction,
   reopenPeriodAction,
+  reopenStatementLineAction,
   saveFinancialTransactionAction,
   saveTransferAction,
 } from "@/app/actions";
@@ -19,10 +21,12 @@ import {
   getReportSnapshot,
   getTransfers,
 } from "@/lib/data";
+import { getStatementReview } from "@/lib/extrato";
 import type { SearchParams } from "@/lib/types";
 import { getImmediateItems } from "@/lib/uso-imediato";
 import { currency, formatDate, isoToday } from "@/lib/utils";
 import { PeriodPicker, paramText, tabHref } from "../_comum";
+import { StatementReview } from "./statement-review";
 
 type PageProps = { searchParams?: Promise<SearchParams> };
 
@@ -42,7 +46,7 @@ function defaultDate(year: number, month: number) {
 export default async function FinanceiroPage({ searchParams }: PageProps) {
   const params = (await searchParams) || {};
   const requested = paramText(params, "aba");
-  const tab = params.editTransferencia ? "transferencias" : params.editLancamento ? "lancamentos" : ["lancamentos", "transferencias", "fechamento"].includes(requested) ? requested : "lancamentos";
+  const tab = params.editTransferencia ? "transferencias" : params.editLancamento ? "lancamentos" : ["lancamentos", "extrato", "transferencias", "fechamento"].includes(requested) ? requested : "lancamentos";
   const monthParams = { year: params.year, month: params.month, scope: "month" };
   const [{ selected, options }, paymentMethods, movementTypes, transactions, transfers, edit, report, usages, immediateItems] = await Promise.all([
     getPeriodContext(params),
@@ -55,10 +59,17 @@ export default async function FinanceiroPage({ searchParams }: PageProps) {
     getInventoryUsages(monthParams),
     getImmediateItems(),
   ]);
+  const statement = tab === "extrato" ? await getStatementReview() : null;
 
   const s = report.selectedSummary;
   const locked = selected.isClosed;
   const tx = edit.financialTransaction;
+  // Depois de registrar, o formulário volta com o último tipo, data e conta usados.
+  const last = {
+    type: paramText(params, "ultTipo"),
+    date: /^\d{4}-\d{2}-\d{2}$/.test(paramText(params, "ultData")) ? paramText(params, "ultData") : "",
+    account: paramText(params, "ultConta"),
+  };
   const transfer = edit.transfer;
   const filters = {
     paymentMethodId: paramText(params, "paymentMethodId") || undefined,
@@ -97,6 +108,7 @@ export default async function FinanceiroPage({ searchParams }: PageProps) {
         active={tab}
         tabs={[
           { key: "lancamentos", label: "Lançamentos", count: transactions.length, href: tabHref("/financeiro", selected, "lancamentos") },
+          { key: "extrato", label: "Extrato do banco", href: tabHref("/financeiro", selected, "extrato") },
           { key: "transferencias", label: "Transferências", count: transfers.length, href: tabHref("/financeiro", selected, "transferencias") },
           { key: "fechamento", label: locked ? "Fechamento · fechado" : "Fechamento do mês", href: tabHref("/financeiro", selected, "fechamento") },
         ]}
@@ -105,31 +117,31 @@ export default async function FinanceiroPage({ searchParams }: PageProps) {
       {tab === "lancamentos" ? (
         <>
           {!locked ? (
-            <Drawer title={tx ? `Editar lançamento — ${tx.description}` : "Novo lançamento"} hint="receita, insumo, despesa ou retirada" open={Boolean(tx)}>
-              <form action={saveFinancialTransactionAction} className="form" key={tx?.id || "novo"}>
+            <Drawer title={tx ? `Editar lançamento — ${tx.description}` : "Novo lançamento"} hint="receita, insumo, despesa ou retirada" open>
+              <form action={saveFinancialTransactionAction} className="form" key={tx?.id || `novo-${paramText(params, "notice")}`}>
                 <input type="hidden" name="id" value={tx?.id || ""} />
                 <input type="hidden" name="itemId" value={tx?.item_id || ""} />
                 <PeriodHidden year={selected.year} month={selected.month} aba="lancamentos" />
                 <div className="fields">
                   <div className="field">
                     <label htmlFor="t-type">Tipo</label>
-                    <select id="t-type" name="movementTypeId" defaultValue={String(tx?.movement_type_id ?? movementTypes[0]?.id ?? "")}>
+                    <select id="t-type" name="movementTypeId" defaultValue={String(tx?.movement_type_id ?? (last.type || movementTypes[0]?.id || ""))}>
                       {movementTypes.map((type) => <option key={type.id} value={type.id}>{type.name}</option>)}
                     </select>
                   </div>
                   <div className="field">
                     <label htmlFor="t-date">Data</label>
-                    <input id="t-date" type="date" name="date" defaultValue={tx?.movement_date || defaultDate(selected.year, selected.month)} required />
+                    <input id="t-date" type="date" name="date" defaultValue={tx?.movement_date || last.date || defaultDate(selected.year, selected.month)} required />
                   </div>
                   <div className="field">
                     <label htmlFor="t-pay">Conta</label>
-                    <select id="t-pay" name="paymentMethodId" defaultValue={String(tx?.payment_method_id ?? paymentMethods[0]?.id ?? "")}>
+                    <select id="t-pay" name="paymentMethodId" defaultValue={String(tx?.payment_method_id ?? (last.account || paymentMethods.find((method) => method.name === "Pix")?.id || paymentMethods[0]?.id || ""))}>
                       {paymentMethods.map((method) => <option key={method.id} value={method.id}>{method.name}</option>)}
                     </select>
                   </div>
                   <div className="field">
                     <label htmlFor="t-amount">Valor</label>
-                    <input id="t-amount" type="number" step="0.01" min="0.01" inputMode="decimal" name="amount" defaultValue={tx?.amount ?? ""} required />
+                    <input id="t-amount" type="number" step="0.01" min="0.01" inputMode="decimal" name="amount" defaultValue={tx?.amount ?? ""} required autoFocus={!tx && Boolean(last.type)} />
                   </div>
                   <div className="field" style={{ gridColumn: "span 2" }}>
                     <label htmlFor="t-desc">Descrição</label>
@@ -236,6 +248,94 @@ export default async function FinanceiroPage({ searchParams }: PageProps) {
               <Empty>{hasFilters ? "Nenhum lançamento com esses filtros." : "Nenhum lançamento neste mês."}</Empty>
             )}
           </Card>
+        </>
+      ) : null}
+
+      {tab === "extrato" && statement ? (
+        <>
+          <Card
+            title="Importar extrato do Nubank"
+            description="Baixe o extrato no app ou site do Nubank (PDF, OFX ou CSV) e envie aqui. O sistema confere os totais antes de aceitar e nunca importa a mesma movimentação duas vezes, mesmo que os períodos se repitam."
+          >
+            <form action={importStatementAction} className="inline-form" style={{ flexWrap: "wrap" }}>
+              <PeriodHidden year={selected.year} month={selected.month} aba="extrato" />
+              <div className="field" style={{ minWidth: 260 }}>
+                <label htmlFor="extrato-arquivo">Arquivo do extrato</label>
+                <input id="extrato-arquivo" name="arquivo" type="file" accept=".pdf,.ofx,.csv,application/pdf" required />
+              </div>
+              <button className="btn btn-primary" type="submit" style={{ alignSelf: "flex-end" }}>Ler extrato</button>
+            </form>
+            {statement.lastImport ? (
+              <p className="muted" style={{ marginTop: 10, marginBottom: 0 }}>
+                Último extrato: {statement.lastImport.periodStart ? formatDate(statement.lastImport.periodStart) : "?"} a{" "}
+                {statement.lastImport.periodEnd ? formatDate(statement.lastImport.periodEnd) : "?"}
+                {statement.lastImport.closingBalance !== null ? ` · saldo final no banco ${currency(statement.lastImport.closingBalance)}` : ""}
+                {` · ${statement.lastImport.linesNew} novas de ${statement.lastImport.linesTotal}`}
+              </p>
+            ) : null}
+          </Card>
+
+          <Card
+            title="Movimentações para classificar"
+            description="O que já estava lançado aparece como “Já lançado” (mesmo valor e data próxima, ou a soma dos Pix do dia). Entradas vêm como Receita; saídas pedem o tipo. Compras de mercadoria para o estoque: registre em Compras e depois volte aqui, que a linha aparece como já lançada."
+            flush
+          >
+            {statement.lines.length ? (
+              <StatementReview
+                lines={statement.lines}
+                types={statement.types}
+                accounts={statement.accounts}
+                year={selected.year}
+                month={selected.month}
+              />
+            ) : (
+              <Empty>Nada para classificar. Envie um extrato acima quando quiser atualizar.</Empty>
+            )}
+          </Card>
+
+          {statement.resolved.length ? (
+            <Card title="Já resolvidas" description="Desfazer devolve a linha para a lista acima. Se o lançamento foi criado pela importação, ele é excluído." flush>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Data</th>
+                      <th>Movimento</th>
+                      <th className="num">Valor</th>
+                      <th>Situação</th>
+                      <th>Onde está</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {statement.resolved.map((row) => (
+                      <tr key={row.id}>
+                        <td>{formatDate(row.date)}</td>
+                        <td>{row.counterpart}</td>
+                        <td className={`num ${row.amount > 0 ? "pos" : "neg"}`}>{currency(row.amount)}</td>
+                        <td>
+                          <Badge tone={row.status === "lançado" ? "success" : row.status === "vinculado" ? "info" : undefined}>{row.status}</Badge>
+                        </td>
+                        <td>{row.target}</td>
+                        <td className="num">
+                          <form action={reopenStatementLineAction}>
+                            <input type="hidden" name="id" value={row.id} />
+                            <PeriodHidden year={selected.year} month={selected.month} aba="extrato" />
+                            <ConfirmButton
+                              className="btn btn-sm btn-ghost"
+                              message={row.status === "lançado" ? "Desfazer? O lançamento criado pela importação será excluído e a linha volta para classificar." : "Desfazer? A linha volta para classificar."}
+                            >
+                              Desfazer
+                            </ConfirmButton>
+                          </form>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ) : null}
         </>
       ) : null}
 

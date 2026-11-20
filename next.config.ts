@@ -20,6 +20,12 @@ const csp = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Leitor de PDF do extrato: usado como está, sem empacotar.
+  serverExternalPackages: ["unpdf"],
+  // Extrato do banco em PDF é enviado pelo formulário (alguns meses de extrato passam de 1 MB).
+  experimental: {
+    serverActions: { bodySizeLimit: "8mb" },
+  },
   async headers() {
     return [
       {

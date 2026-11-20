@@ -21,6 +21,7 @@ import {
   setPeriodClosed,
 } from "@/lib/data";
 import { applyReplenishment, registerPhysicalCount } from "@/lib/analise";
+import { applyStatementActions, importStatement, reopenStatementLine, type StatementAction } from "@/lib/extrato";
 import { duplicateProduct, saveProduct, setIndirectDefault, setProductActive, type ProductInput } from "@/lib/custos";
 import { linkDescriptions, saveImmediateItem, setImmediateItemActive, unlinkImmediateItem } from "@/lib/uso-imediato";
 import { buildPeriodHref, clampNumber, cleanText, currentYearMonth } from "@/lib/utils";
@@ -209,7 +210,17 @@ export async function saveFinancialTransactionAction(formData: FormData) {
       saveAsStandard: formData.get("saveStandard") === "1",
     }),
   );
-  done(formData, "/financeiro", id ? "Lançamento atualizado." : "Lançamento registrado.");
+  if (id) done(formData, "/financeiro", "Lançamento atualizado.");
+  // Lançamento novo: volta com o formulário pronto para o próximo, no mesmo tipo, data e conta.
+  revalidateAll();
+  redirect(
+    getPeriodTarget(formData, "/financeiro", {
+      notice: `Lançamento registrado: ${cleanText(formData.get("description"))}. Pode lançar o próximo.`,
+      ultTipo: cleanText(formData.get("movementTypeId")),
+      ultData: cleanText(formData.get("date")),
+      ultConta: cleanText(formData.get("paymentMethodId")),
+    }),
+  );
 }
 
 export async function deleteFinancialTransactionAction(formData: FormData) {
@@ -405,4 +416,51 @@ export async function saveIndirectDefaultAction(formData: FormData) {
   const pct = clampNumber(formData.get("indirectPct"), -1) / 100;
   await runCostMutation({}, () => setIndirectDefault(pct));
   costDone({ notice: "Percentual padrão de custos indiretos atualizado." });
+}
+
+/* ---------- Extrato bancário (Financeiro › Extrato) ---------- */
+
+export async function importStatementAction(formData: FormData) {
+  const file = formData.get("arquivo");
+  formData.set("aba", "extrato");
+  if (!(file instanceof File) || file.size === 0) {
+    redirect(getPeriodTarget(formData, "/financeiro", { error: "Escolha o arquivo do extrato (PDF, OFX ou CSV)." }));
+  }
+  let result: Awaited<ReturnType<typeof importStatement>> | null = null;
+  await runPeriodMutation(formData, "/financeiro", async () => {
+    result = await importStatement({ bytes: new Uint8Array(await file.arrayBuffer()), fileName: file.name });
+  });
+  const r = result as unknown as Awaited<ReturnType<typeof importStatement>>;
+  done(
+    formData,
+    "/financeiro",
+    `Extrato lido e conferido (${r.parsed.lines.length} movimentações). ${r.created} novas para classificar${r.repeated ? `, ${r.repeated} já tinham sido importadas antes` : ""}.`,
+  );
+}
+
+export async function applyStatementAction(formData: FormData) {
+  formData.set("aba", "extrato");
+  let actions: StatementAction[] = [];
+  try {
+    actions = JSON.parse(String(formData.get("payload") || "[]")) as StatementAction[];
+  } catch {
+    redirect(getPeriodTarget(formData, "/financeiro", { error: "Não foi possível ler a classificação. Tente de novo." }));
+  }
+  let counts = { lancar: 0, transferir: 0, vincular: 0, ignorar: 0 };
+  await runPeriodMutation(formData, "/financeiro", async () => {
+    counts = await applyStatementActions(actions);
+  });
+  const parts = [
+    counts.lancar ? `${counts.lancar} lançada(s)` : "",
+    counts.transferir ? `${counts.transferir} transferência(s)` : "",
+    counts.vincular ? `${counts.vincular} vinculada(s) a lançamentos que já existiam` : "",
+    counts.ignorar ? `${counts.ignorar} ignorada(s)` : "",
+  ].filter(Boolean);
+  done(formData, "/financeiro", `Extrato: ${parts.join(", ") || "nada mudou"}.`);
+}
+
+export async function reopenStatementLineAction(formData: FormData) {
+  formData.set("aba", "extrato");
+  await runPeriodMutation(formData, "/financeiro", () => reopenStatementLine(Number(formData.get("id"))));
+  done(formData, "/financeiro", "Linha devolvida para a revisão.");
 }

@@ -1008,6 +1008,34 @@ fieldset {
   height: auto;
 }
 
+/* ---------- Extrato do banco ---------- */
+
+.statement-choice {
+  display: grid;
+  grid-template-columns: minmax(150px, 1fr) minmax(110px, 0.8fr) minmax(140px, 1.4fr);
+  gap: 6px;
+}
+
+.statement-table td {
+  vertical-align: top;
+}
+
+.statement-table .muted-row td {
+  opacity: 0.55;
+}
+
+td.pos {
+  color: var(--positive);
+}
+
+td.neg {
+  color: var(--negative);
+}
+
+.warn-text {
+  color: var(--warning) !important;
+}
+
 /* ---------- Busca com lista (produto, fornecedor, item padrão) ---------- */
 
 .combo {
