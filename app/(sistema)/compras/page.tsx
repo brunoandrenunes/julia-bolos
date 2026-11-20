@@ -109,10 +109,11 @@ export default async function ComprasPage({ searchParams }: PageProps) {
           ) : null}
           <PurchaseForm
             immediateItems={immediateItems.filter((item) => item.isActive)}
-            key={purchase?.id || "nova"}
+            key={purchase?.id || `nova-${paramText(params, "notice")}`}
             year={selected.year}
             month={selected.month}
-            defaultDate={defaultDate(selected.year, selected.month)}
+            defaultDate={/^\d{4}-\d{2}-\d{2}$/.test(paramText(params, "ultData")) ? paramText(params, "ultData") : defaultDate(selected.year, selected.month)}
+            defaultPaymentId={Number(paramText(params, "ultPagamento")) || undefined}
             disabled={selected.isClosed}
             suppliers={activeSuppliers}
             paymentMethods={paymentMethods}

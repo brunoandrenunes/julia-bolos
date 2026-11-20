@@ -166,9 +166,21 @@ export async function savePurchaseAction(formData: FormData) {
     }),
   );
 
-  // Depois de salvar, mostra o histórico do mês da compra.
-  formData.set("aba", "historico");
-  done(formData, "/compras", id ? "Compra atualizada. Estoque e financeiro acompanharam." : "Compra registrada. Estoque e financeiro já foram atualizados.");
+  // Edição: mostra o histórico do mês. Compra nova: volta ao formulário vazio para a próxima nota,
+  // com a mesma data e forma de pagamento.
+  if (id) {
+    formData.set("aba", "historico");
+    done(formData, "/compras", "Compra atualizada. Estoque e financeiro acompanharam.");
+  }
+  formData.set("aba", "registrar");
+  revalidateAll();
+  redirect(
+    getPeriodTarget(formData, "/compras", {
+      notice: "Compra registrada. Estoque e financeiro já foram atualizados. Pode lançar a próxima nota.",
+      ultData: cleanText(formData.get("date")),
+      ultPagamento: cleanText(formData.get("paymentMethodId")),
+    }),
+  );
 }
 
 export async function deletePurchaseAction(formData: FormData) {

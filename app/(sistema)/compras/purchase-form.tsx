@@ -12,6 +12,7 @@ type PurchaseFormProps = {
   year: number;
   month: number;
   defaultDate: string;
+  defaultPaymentId?: number;
   disabled: boolean;
   suppliers: SupplierRecord[];
   paymentMethods: PaymentMethod[];
@@ -93,6 +94,7 @@ export function PurchaseForm({
   year,
   month,
   defaultDate,
+  defaultPaymentId,
   disabled,
   suppliers,
   paymentMethods,
@@ -145,7 +147,7 @@ export function PurchaseForm({
           </div>
           <div className="field">
             <label htmlFor="purchase-payment">Pagamento</label>
-            <select id="purchase-payment" name="paymentMethodId" defaultValue={String(purchase?.payment_method_id || paymentMethods[0]?.id || "")} required>
+            <select id="purchase-payment" name="paymentMethodId" defaultValue={String(purchase?.payment_method_id || defaultPaymentId || paymentMethods[0]?.id || "")} required>
               {paymentMethods.map((method) => (
                 <option key={method.id} value={method.id}>
                   {method.name}
