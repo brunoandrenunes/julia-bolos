@@ -1,6 +1,6 @@
 import jsQR from "jsqr";
 import { extractImages, getDocumentProxy } from "unpdf";
-import { dbHelpers, withDatabase } from "@/lib/db";
+import { dbHelpers, withDatabase, withTransaction } from "@/lib/db";
 import { parseNfceInput, parseNfcePrHtml, productKey, type Nfce } from "@/lib/nfce-parse";
 import { normalizeText } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ export type InvoiceLineDraft = {
   description: string;
   quantity: number;
   origin: "aprendido" | "palpite" | null;
+  hint: string | null;
 };
 
 export type InvoiceDraft = {
@@ -88,6 +89,7 @@ async function fetchNfce(url: string): Promise<Nfce> {
 }
 
 // Palpite pelo nome: palavras em comum entre o produto da nota e o item do sistema.
+// Empate (ex.: Leite em Pó 350 g × 380 g) devolve os candidatos para desempatar pelo preço.
 function guessItem(description: string, items: { id: number; name: string }[]) {
   const words = (text: string) =>
     normalizeText(text)
@@ -96,7 +98,7 @@ function guessItem(description: string, items: { id: number; name: string }[]) {
       .filter((word) => word.length >= 2)
       .map((word) => (word.length > 3 ? word.replace(/s$/, "") : word));
   const target = words(description);
-  if (!target.length) return null;
+  if (!target.length) return { item: null, candidates: [] as { id: number; name: string }[] };
   const scored = items
     .map((item) => {
       const name = words(item.name.split(" - ")[0]);
@@ -105,8 +107,20 @@ function guessItem(description: string, items: { id: number; name: string }[]) {
     })
     .filter((row) => row.first && row.hits >= 1)
     .sort((a, b) => b.hits - a.hits || a.extra - b.extra);
-  if (!scored.length || (scored[1] && scored[1].hits === scored[0].hits && scored[1].extra === scored[0].extra)) return null;
-  return scored[0].item;
+  if (!scored.length) return { item: null, candidates: [] };
+  const tied = scored.filter((row) => row.hits === scored[0].hits && row.extra === scored[0].extra).map((row) => row.item);
+  return tied.length === 1 ? { item: tied[0], candidates: tied } : { item: null, candidates: tied };
+}
+
+// Desempate pelo último preço pago: o candidato com preço mais perto do preço da nota (até 35% de diferença).
+function closestByPrice(candidates: { id: number; name: string }[], unitPrice: number, lastPrice: Map<number, number>) {
+  const priced = candidates
+    .filter((item) => lastPrice.has(item.id))
+    .map((item) => ({ item, diff: Math.abs(lastPrice.get(item.id)! - unitPrice) / unitPrice }))
+    .sort((a, b) => a.diff - b.diff);
+  if (!priced.length || priced[0].diff > 0.35) return null;
+  if (priced[1] && priced[1].diff - priced[0].diff < 0.05) return null; // preços parecidos demais para decidir
+  return priced[0].item;
 }
 
 export async function readInvoice(input: { text?: string; pdf?: Uint8Array }): Promise<InvoiceDraft> {
@@ -127,14 +141,27 @@ export async function readInvoice(input: { text?: string; pdf?: Uint8Array }): P
   const nfce = await fetchNfce(url);
 
   return withDatabase(async (db) => {
-    const [supplier, duplicate, links, items, types, payments] = await Promise.all([
+    const [supplier, duplicate, links, items, types, payments, otherLinks, lastPrices] = await Promise.all([
       queryOne(db, "SELECT id, name FROM suppliers WHERE document = ? ORDER BY is_active DESC, id LIMIT 1", [nfce.document]),
       queryOne(db, "SELECT id, purchase_date FROM purchases WHERE access_key = ?", [nfce.key || key]),
       queryAll(db, "SELECT * FROM invoice_product_links WHERE supplier_document = ?", [nfce.document]),
       queryAll(db, "SELECT id, name FROM items WHERE is_active = 1"),
       queryAll(db, "SELECT id, name FROM movement_types WHERE name IN ('Insumos', 'Retirada')"),
       queryAll(db, "SELECT id, name FROM payment_methods"),
+      // Mesmo produto (pela descrição) já ligado em outro mercado.
+      queryAll(db, "SELECT * FROM invoice_product_links WHERE supplier_document <> ? AND destination <> 'skip' ORDER BY updated_at DESC", [nfce.document]),
+      queryAll(
+        db,
+        `SELECT DISTINCT ON (item_id) item_id, total_amount / quantity AS price FROM inventory_entries
+         WHERE quantity > 0 AND total_amount > 0 ORDER BY item_id, movement_date DESC, id DESC`,
+      ),
     ]);
+    const byDescription = new Map<string, Record<string, unknown>>();
+    otherLinks.forEach((row) => {
+      const key = normalizeText(String(row.description || ""));
+      if (key && !byDescription.has(key)) byDescription.set(key, row);
+    });
+    const lastPrice = new Map(lastPrices.map((row) => [num(row.item_id), num(row.price)]));
     const typeId = (name: string) => num(types.find((row) => row.name === name)?.id) || null;
     const byKey = new Map(links.map((row) => [String(row.product_key), row]));
     const itemList = items.map((row) => ({ id: num(row.id), name: String(row.name) }));
@@ -158,7 +185,7 @@ export async function readInvoice(input: { text?: string; pdf?: Uint8Array }): P
     const lines: InvoiceLineDraft[] = merged.map((item) => {
       const sourceKey = productKey(item);
       const source = { key: sourceKey, ...item };
-      const link = byKey.get(sourceKey);
+      const link = byKey.get(sourceKey) || byDescription.get(normalizeText(item.description));
       if (link) {
         const destination = String(link.destination) as InvoiceLineDraft["destination"];
         return {
@@ -169,19 +196,28 @@ export async function readInvoice(input: { text?: string; pdf?: Uint8Array }): P
           description: String(link.financial_description || item.description),
           quantity: destination === "inventory" ? Math.round(item.qty * num(link.qty_factor) * 1000) / 1000 : item.qty,
           origin: "aprendido",
+          hint: String(link.supplier_document) === nfce.document ? null : "ligado assim em outro mercado",
         };
       }
-      const guess = guessItem(item.description, itemList);
+      const { item: byName, candidates } = guessItem(item.description, itemList);
+      const guess = byName || (candidates.length > 1 ? closestByPrice(candidates, item.unitPrice, lastPrice) : null);
       // "Dz" (dúzia) para item contado por unidade: 12 por dúzia.
       const dozen = guess && /\bdz\b|duzia/i.test(normalizeText(item.description)) && /unidade/i.test(guess.name);
+      const undecided = !guess && candidates.length > 1;
       return {
         source,
-        destination: guess ? "inventory" : "financial",
+        // Parece item de estoque mas há mais de uma embalagem: fica em Estoque, esperando a escolha.
+        destination: guess || undecided ? "inventory" : "financial",
         itemId: guess?.id ?? null,
         movementTypeId: typeId("Insumos"),
         description: item.description,
         quantity: dozen ? item.qty * 12 : item.qty,
-        origin: guess ? "palpite" : null,
+        origin: guess || undecided ? "palpite" : null,
+        hint: undecided
+          ? `escolha entre: ${candidates.map((row) => row.name).join(" / ")}`
+          : guess && !byName
+            ? `escolhido pelo último preço pago (${new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(lastPrice.get(guess.id) || 0)})`
+            : null,
       };
     });
 
@@ -199,4 +235,76 @@ export async function readInvoice(input: { text?: string; pdf?: Uint8Array }): P
       lines,
     };
   });
+}
+
+/* ---------- Produtos das notas: revisar o que o sistema aprendeu ---------- */
+
+export type InvoiceLinkRow = {
+  id: number;
+  supplierName: string;
+  supplierDocument: string;
+  description: string;
+  destination: InvoiceLineDraft["destination"];
+  itemId: number | null;
+  itemName: string | null;
+  financialDescription: string | null;
+  qtyFactor: number;
+  updatedAt: string;
+};
+
+export async function getInvoiceLinks(): Promise<InvoiceLinkRow[]> {
+  return withDatabase(async (db) => {
+    const rows = await queryAll(
+      db,
+      `SELECT l.*, i.name AS item_name,
+         (SELECT s.name FROM suppliers s WHERE s.document = l.supplier_document ORDER BY s.is_active DESC, s.id LIMIT 1) AS supplier_name
+       FROM invoice_product_links l LEFT JOIN items i ON i.id = l.item_id
+       ORDER BY supplier_name NULLS LAST, lower(l.description)`,
+    );
+    return rows.map((row) => ({
+      id: num(row.id),
+      supplierName: row.supplier_name ? String(row.supplier_name) : `CNPJ ${row.supplier_document}`,
+      supplierDocument: String(row.supplier_document),
+      description: String(row.description || ""),
+      destination: String(row.destination) as InvoiceLineDraft["destination"],
+      itemId: row.item_id == null ? null : num(row.item_id),
+      itemName: row.item_name ? String(row.item_name) : null,
+      financialDescription: row.financial_description ? String(row.financial_description) : null,
+      qtyFactor: num(row.qty_factor) || 1,
+      updatedAt: String(row.updated_at || ""),
+    }));
+  });
+}
+
+export async function saveInvoiceLink(input: {
+  id: number;
+  destination: InvoiceLineDraft["destination"];
+  itemId?: number | null;
+  qtyFactor?: number;
+  financialDescription?: string;
+}) {
+  if (!["inventory", "financial", "personal", "skip"].includes(input.destination)) throw new Error("Destino inválido.");
+  if (input.destination === "inventory" && !input.itemId) throw new Error("Escolha o item do estoque.");
+  const factor = input.qtyFactor && input.qtyFactor > 0 ? input.qtyFactor : 1;
+  return withTransaction(async (db) => {
+    const types = await queryAll(db, "SELECT id, name FROM movement_types WHERE name IN ('Insumos', 'Retirada')");
+    const typeId = (name: string) => num(types.find((row) => row.name === name)?.id) || null;
+    await dbHelpers.run(
+      db,
+      `UPDATE invoice_product_links SET destination = ?, item_id = ?, qty_factor = ?, movement_type_id = ?, financial_description = ?, updated_at = agora_texto()
+       WHERE id = ?`,
+      [
+        input.destination,
+        input.destination === "inventory" ? input.itemId : null,
+        input.destination === "inventory" ? factor : 1,
+        input.destination === "financial" ? typeId("Insumos") : input.destination === "personal" ? typeId("Retirada") : null,
+        input.destination === "financial" || input.destination === "personal" ? input.financialDescription?.trim() || null : null,
+        input.id,
+      ],
+    );
+  });
+}
+
+export async function deleteInvoiceLink(id: number) {
+  return withTransaction((db) => dbHelpers.run(db, "DELETE FROM invoice_product_links WHERE id = ?", [id]));
 }

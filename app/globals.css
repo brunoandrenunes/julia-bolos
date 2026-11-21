@@ -1680,3 +1680,29 @@ td.neg {
     grid-column: 1 / -1;
   }
 }
+
+/* ---------- Produtos das notas (vínculos) ---------- */
+
+.link-form {
+  display: grid;
+  grid-template-columns: 150px minmax(180px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.link-form .factor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-3);
+}
+
+.link-form .factor input {
+  width: 80px;
+}
+
+@media (max-width: 860px) {
+  .link-form {
+    grid-template-columns: 1fr 1fr;
+  }
+}

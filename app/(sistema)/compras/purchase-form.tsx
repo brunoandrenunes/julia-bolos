@@ -42,6 +42,7 @@ type EditableLine = {
   saveStandard: boolean;
   source?: InvoiceDraft["lines"][number]["source"];
   origin?: "aprendido" | "palpite" | null;
+  hint?: string | null;
 };
 
 let nextLineId = 1;
@@ -108,6 +109,7 @@ function draftLines(draft: InvoiceDraft, insumosId?: number, retiradaId?: number
     saveStandard: false,
     source: line.source,
     origin: line.origin,
+    hint: line.hint,
   }));
 }
 
@@ -489,7 +491,8 @@ function PurchaseFormInner({
                 {line.source ? (
                   <span className={`line-extra line-note${line.origin === "palpite" ? " warn" : ""}`}>
                     Nota: {line.source.description} · {qtyText(line.source.qty)} {line.source.unit} × {money(line.source.unitPrice)} = {money(line.source.total)}
-                    {line.origin === "aprendido" ? " · como da última vez" : line.origin === "palpite" ? " · palpite pelo nome: confira o produto" : ""}
+                    {line.origin === "aprendido" ? " · como da última vez" : line.origin === "palpite" ? " · palpite: confira o produto" : ""}
+                    {line.hint ? ` · ${line.hint}` : ""}
                     {line.destination === "inventory" && line.source.unit !== "UN" ? " · na quantidade, use a unidade do item do sistema" : ""}
                     {line.destination === "inventory" ? " · quantidade = unidades do item no sistema (ex.: 1 dúzia = 12 ovos)" : ""}
                   </span>

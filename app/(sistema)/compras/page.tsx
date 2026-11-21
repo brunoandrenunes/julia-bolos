@@ -16,6 +16,8 @@ import {
 import type { SearchParams } from "@/lib/types";
 import { currency, formatDate, isoToday, quantity } from "@/lib/utils";
 import { getImmediateItems } from "@/lib/uso-imediato";
+import { getInvoiceLinks } from "@/lib/nfce";
+import { InvoiceLinks } from "./invoice-links";
 import { PurchaseForm } from "./purchase-form";
 import { PeriodPicker, paramText, tabHref } from "../_comum";
 
@@ -52,7 +54,8 @@ export default async function ComprasPage({ searchParams }: PageProps) {
       getImmediateItems(),
     ]);
 
-  const tab = purchase ? "registrar" : ["registrar", "historico", "fornecedores", "sinais"].includes(requestedTab) ? requestedTab : "registrar";
+  const tab = purchase ? "registrar" : ["registrar", "historico", "fornecedores", "sinais", "vinculos"].includes(requestedTab) ? requestedTab : "registrar";
+  const invoiceLinks = tab === "vinculos" ? await getInvoiceLinks() : null;
   const activeSuppliers = suppliers.filter((supplier) => supplier.is_active === 1 || supplier.id === purchase?.supplier_id);
   const supplierToEdit = suppliers.find((supplier) => supplier.id === supplierEditId) || null;
   const filters = {
@@ -89,6 +92,7 @@ export default async function ComprasPage({ searchParams }: PageProps) {
           { key: "historico", label: "Compras do mês", count: purchases.length, href: tabHref("/compras", selected, "historico") },
           { key: "fornecedores", label: "Fornecedores", count: overview.activeSupplierCount, href: tabHref("/compras", selected, "fornecedores") },
           { key: "sinais", label: "Sinais de reposição", href: tabHref("/compras", selected, "sinais") },
+          { key: "vinculos", label: "Produtos das notas", href: tabHref("/compras", selected, "vinculos") },
         ]}
       />
 
@@ -280,6 +284,25 @@ export default async function ComprasPage({ searchParams }: PageProps) {
             </div>
           </Card>
         </>
+      ) : null}
+
+      {tab === "vinculos" ? (
+        <Card
+          title="Produtos das notas"
+          description="O que o sistema faz com cada produto quando ele aparece num cupom importado: vai para qual item do estoque (e quantas unidades do item vêm em cada unidade da nota), para uso imediato, para a casa ou fica de fora. É aprendido ao registrar a primeira nota e pode ser corrigido aqui a qualquer momento."
+          flush
+        >
+          {invoiceLinks && invoiceLinks.length ? (
+            <InvoiceLinks
+              rows={invoiceLinks}
+              itemOptions={items.map((item) => ({ id: item.id, name: item.name, group: item.category_name }))}
+              year={selected.year}
+              month={selected.month}
+            />
+          ) : (
+            <Empty>Nenhum produto vinculado ainda. Importe um cupom em Registrar compra: ao registrar, as escolhas ficam guardadas aqui.</Empty>
+          )}
+        </Card>
       ) : null}
 
       {tab === "sinais" ? (

@@ -22,7 +22,7 @@ import {
   setPeriodClosed,
 } from "@/lib/data";
 import { applyReplenishment, registerPhysicalCount } from "@/lib/analise";
-import { readInvoice, type InvoiceDraft } from "@/lib/nfce";
+import { deleteInvoiceLink, readInvoice, saveInvoiceLink, type InvoiceDraft } from "@/lib/nfce";
 import { applyStatementActions, importStatement, reopenStatementLine, type StatementAction } from "@/lib/extrato";
 import { duplicateProduct, saveProduct, setIndirectDefault, setProductActive, type ProductInput } from "@/lib/custos";
 import { linkDescriptions, saveImmediateItem, setImmediateItemActive, unlinkImmediateItem } from "@/lib/uso-imediato";
@@ -512,4 +512,24 @@ export async function readInvoiceAction(
     unstable_rethrow(error);
     return { ok: false, error: error instanceof Error ? error.message : "Não foi possível ler a nota." };
   }
+}
+
+export async function saveInvoiceLinkAction(formData: FormData) {
+  formData.set("aba", "vinculos");
+  await runPeriodMutation(formData, "/compras", () =>
+    saveInvoiceLink({
+      id: Number(formData.get("id")),
+      destination: cleanText(formData.get("destination")) as "inventory" | "financial" | "personal" | "skip",
+      itemId: Number(formData.get("itemId")) || null,
+      qtyFactor: clampNumber(formData.get("qtyFactor"), 1),
+      financialDescription: cleanText(formData.get("financialDescription")),
+    }),
+  );
+  done(formData, "/compras", "Vínculo salvo. As próximas notas já vêm assim.");
+}
+
+export async function deleteInvoiceLinkAction(formData: FormData) {
+  formData.set("aba", "vinculos");
+  await runPeriodMutation(formData, "/compras", () => deleteInvoiceLink(Number(formData.get("id"))));
+  done(formData, "/compras", "Vínculo excluído. Na próxima nota o sistema volta a sugerir pelo nome.");
 }
