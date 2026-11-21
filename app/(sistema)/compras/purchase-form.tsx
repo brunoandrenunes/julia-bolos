@@ -245,6 +245,9 @@ function PurchaseFormInner({
   const [lines, setLines] = useState<EditableLine[]>(() => (draft ? draftLines(draft, insumosId, retiradaId) : initialLines(purchase, insumosId)));
   const [invoiceTotal, setInvoiceTotal] = useState(draft ? String(draft.total) : "");
   const [supplierChosen, setSupplierChosen] = useState(Boolean(draft?.supplierId));
+  // CNPJ ainda desconhecido: é preciso escolher o fornecedor já cadastrado ou confirmar o cadastro de um novo.
+  const [createNew, setCreateNew] = useState(false);
+  const cnpj = (draft?.supplierDocument || "").replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, "$1.$2.$3/$4-$5");
   const included = lines.filter((line) => line.destination !== "skip");
   const skippedLines = lines.filter((line) => line.destination === "skip");
   const total = round(included.reduce((sum, line) => sum + (Number(line.amount) || 0), 0), 2);
@@ -285,7 +288,7 @@ function PurchaseFormInner({
         <>
           <input type="hidden" name="accessKey" value={draft.key} />
           <input type="hidden" name="supplierDocument" value={draft.supplierDocument} />
-          <input type="hidden" name="newSupplierName" value={supplierChosen ? "" : draft.supplierName} />
+          <input type="hidden" name="newSupplierName" value={createNew && !supplierChosen ? draft.supplierName : ""} />
           <input type="hidden" name="skippedSources" value={JSON.stringify(skippedLines.map(sourceOf).filter(Boolean))} />
         </>
       ) : null}
@@ -318,8 +321,8 @@ function PurchaseFormInner({
               name="supplierId"
               options={supplierOptions}
               defaultId={purchase?.supplier_id || draft?.supplierId}
-              placeholder={draft && !draft.supplierId ? "Escolha, ou deixe vazio para cadastrar" : "Buscar fornecedor…"}
-              required={!draft || Boolean(draft.supplierId)}
+              placeholder={draft && !draft.supplierId ? "Qual fornecedor é este?" : "Buscar fornecedor…"}
+              required={!draft || Boolean(draft.supplierId) || !createNew}
               onChange={(id) => setSupplierChosen(Boolean(id))}
             />
           </div>
@@ -338,11 +341,24 @@ function PurchaseFormInner({
             <input id="purchase-invoice" name="invoiceNumber" defaultValue={purchase?.invoice_number || draft?.invoiceNumber || ""} />
           </div>
           {draft && !draft.supplierId ? (
-            <p className="line-note field wide" style={{ margin: 0 }}>
-              {supplierChosen
-                ? `O CNPJ ${draft.supplierDocument} fica guardado neste fornecedor; na próxima nota ele é reconhecido sozinho.`
-                : `Mercado novo: "${draft.supplierName}" (CNPJ ${draft.supplierDocument}) será cadastrado. Se já existe com outro nome (ex.: Super Polo), escolha-o no campo Fornecedor.`}
-            </p>
+            <div className="field wide supplier-confirm">
+              {supplierChosen ? (
+                <span className="line-note">
+                  <Icon name="check" size={14} /> Confirmado: o CNPJ {cnpj} fica guardado neste fornecedor. Nas próximas notas ele é reconhecido sozinho.
+                </span>
+              ) : (
+                <>
+                  <span className="line-note warn">
+                    Primeira nota deste CNPJ: <strong>{draft.supplierName}</strong> ({cnpj}). A razão social costuma ser diferente do nome do
+                    mercado (ex.: Slonski &amp; Cia = Super Polo). Escolha no campo Fornecedor qual dos seus fornecedores é este, ou:
+                  </span>
+                  <label className="save-standard">
+                    <input type="checkbox" checked={createNew} onChange={(event) => setCreateNew(event.target.checked)} />
+                    Não está na lista: cadastrar &quot;{draft.supplierName}&quot; como fornecedor novo
+                  </label>
+                </>
+              )}
+            </div>
           ) : null}
           <div className="field wide">
             <label htmlFor="purchase-notes">Observação (opcional)</label>

@@ -1706,3 +1706,11 @@ td.neg {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+.supplier-confirm {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+}
