@@ -1634,3 +1634,49 @@ td.neg {
     grid-template-columns: 96px minmax(0, 1fr) 160px;
   }
 }
+
+/* ---------- Importar cupom (Compras) ---------- */
+
+.invoice-import {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  margin-bottom: 14px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+.invoice-import-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: baseline;
+}
+
+.invoice-import-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+}
+
+.file-btn {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.line.skipped {
+  opacity: 0.55;
+  background: transparent;
+  border-style: dashed;
+}
+
+@media (max-width: 860px) {
+  .invoice-import-row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .invoice-import-row input {
+    grid-column: 1 / -1;
+  }
+}

@@ -11,6 +11,7 @@ import {
   createOrUpdateSupplier,
   createOrUpdateTransfer,
   deactivateItem,
+  type InvoiceSource,
   deletePurchase,
   deleteFinancialTransaction,
   deleteInventoryEntry,
@@ -21,6 +22,7 @@ import {
   setPeriodClosed,
 } from "@/lib/data";
 import { applyReplenishment, registerPhysicalCount } from "@/lib/analise";
+import { readInvoice, type InvoiceDraft } from "@/lib/nfce";
 import { applyStatementActions, importStatement, reopenStatementLine, type StatementAction } from "@/lib/extrato";
 import { duplicateProduct, saveProduct, setIndirectDefault, setProductActive, type ProductInput } from "@/lib/custos";
 import { linkDescriptions, saveImmediateItem, setImmediateItemActive, unlinkImmediateItem } from "@/lib/uso-imediato";
@@ -143,13 +145,32 @@ export async function savePurchaseAction(formData: FormData) {
   const amounts = formData.getAll("lineAmount");
   const movementTypeIds = formData.getAll("lineMovementTypeId");
   const saveStandard = formData.getAll("lineSaveStandard");
+  const lineSources = formData.getAll("lineSource");
+  const parseSource = (value: FormDataEntryValue | undefined): InvoiceSource | null => {
+    try {
+      return value ? (JSON.parse(String(value)) as InvoiceSource) : null;
+    } catch {
+      return null;
+    }
+  };
+  let skipped: InvoiceSource[] = [];
+  try {
+    skipped = JSON.parse(String(formData.get("skippedSources") || "[]")) as InvoiceSource[];
+  } catch {
+    skipped = [];
+  }
   const id = Number(formData.get("id")) || undefined;
 
   await runPeriodMutation(formData, "/compras", () =>
     createOrUpdatePurchase({
       id,
       date: cleanText(formData.get("date")),
-      supplierId: Number(formData.get("supplierId")),
+      supplierId: Number(formData.get("supplierId")) || 0,
+      accessKey: cleanText(formData.get("accessKey")) || undefined,
+      supplierDocument: cleanText(formData.get("supplierDocument")) || undefined,
+      newSupplierName: cleanText(formData.get("newSupplierName")) || undefined,
+      sources: destinations.map((_, index) => parseSource(lineSources[index])),
+      skipped,
       paymentMethodId: Number(formData.get("paymentMethodId")),
       invoiceNumber: cleanText(formData.get("invoiceNumber")),
       notes: cleanText(formData.get("notes")),
@@ -475,4 +496,20 @@ export async function reopenStatementLineAction(formData: FormData) {
   formData.set("aba", "extrato");
   await runPeriodMutation(formData, "/financeiro", () => reopenStatementLine(Number(formData.get("id"))));
   done(formData, "/financeiro", "Linha devolvida para a revisão.");
+}
+
+/* ---------- Importar compra pelo cupom (Compras › Registrar) ---------- */
+
+export async function readInvoiceAction(
+  formData: FormData,
+): Promise<{ ok: true; draft: InvoiceDraft } | { ok: false; error: string }> {
+  try {
+    const file = formData.get("arquivo");
+    const pdf = file instanceof File && file.size > 0 ? new Uint8Array(await file.arrayBuffer()) : undefined;
+    const draft = await readInvoice({ text: cleanText(formData.get("texto")), pdf });
+    return { ok: true, draft };
+  } catch (error) {
+    unstable_rethrow(error);
+    return { ok: false, error: error instanceof Error ? error.message : "Não foi possível ler a nota." };
+  }
 }

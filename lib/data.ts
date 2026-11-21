@@ -839,8 +839,8 @@ export async function getPurchaseMovementTypes() {
       `
         SELECT id, name, group_name, affects_report
         FROM movement_types
-        WHERE name IN ('Insumos', 'Despesa')
-        ORDER BY CASE name WHEN 'Insumos' THEN 0 ELSE 1 END
+        WHERE name IN ('Insumos', 'Despesa', 'Retirada')
+        ORDER BY CASE name WHEN 'Insumos' THEN 0 WHEN 'Despesa' THEN 1 ELSE 2 END
       `,
     ) as MovementType[]).map((row) => ({
       id: numeric(row.id),
@@ -2219,6 +2219,14 @@ export async function matchImmediateItem(
   return { id: numeric(inserted[0]?.id), name };
 }
 
+// Produto da nota importada (cupom), para lembrar o que foi feito com ele na próxima vez.
+export type InvoiceSource = {
+  key: string;
+  description: string;
+  qty: number;
+  destination: "inventory" | "financial" | "personal" | "skip";
+};
+
 type PurchaseLineInput = {
   destination: "inventory" | "financial";
   itemId?: number | null;
@@ -2285,10 +2293,30 @@ export async function createOrUpdatePurchase(input: {
   invoiceNumber?: string;
   notes?: string;
   lines: PurchaseLineInput[];
+  accessKey?: string;
+  supplierDocument?: string;
+  newSupplierName?: string;
+  sources?: (InvoiceSource | null)[];
+  skipped?: InvoiceSource[];
 }) {
   return withTransaction(async (db) => {
     if (input.id) {
       await assertPurchasePeriodOpen(db, input.id);
+    }
+    // Nota importada de um mercado ainda não cadastrado: cadastra o fornecedor com o CNPJ.
+    if (!input.supplierId && input.newSupplierName?.trim()) {
+      const name = input.newSupplierName.trim();
+      const existing = await queryOne(db, "SELECT id FROM suppliers WHERE lower(name) = lower(?)", [name]);
+      input = {
+        ...input,
+        supplierId: existing
+          ? numeric(existing.id)
+          : numeric((await run(db, "INSERT INTO suppliers (name, document) VALUES (?, ?) RETURNING id", [name, input.supplierDocument || null]))[0]?.id),
+      };
+    }
+    if (input.accessKey) {
+      const dup = await queryOne(db, "SELECT id, purchase_date FROM purchases WHERE access_key = ? AND id <> ?", [input.accessKey, input.id || 0]);
+      if (dup) throw new Error(`Esta nota já foi registrada (compra de ${String(dup.purchase_date).split("-").reverse().join("/")}).`);
     }
     assertPositive(input.supplierId, "O fornecedor");
     assertPositive(input.paymentMethodId, "A forma de pagamento");
@@ -2320,11 +2348,11 @@ export async function createOrUpdatePurchase(input: {
         }
         const movementType = await queryOne(
           db,
-          "SELECT id FROM movement_types WHERE id = ? AND name IN ('Insumos', 'Despesa')",
+          "SELECT id FROM movement_types WHERE id = ? AND name IN ('Insumos', 'Despesa', 'Retirada')",
           [line.movementTypeId],
         );
         if (!movementType) {
-          throw new Error(`Selecione Insumos ou Despesa no item ${index + 1}.`);
+          throw new Error(`Selecione Insumos, Despesa ou Retirada no item ${index + 1}.`);
         }
       } else {
         throw new Error(`O destino do item ${index + 1} é inválido.`);
@@ -2472,6 +2500,42 @@ export async function createOrUpdatePurchase(input: {
           ],
         );
       }
+    }
+
+    // Nota importada: guarda a chave (evita registrar duas vezes), o CNPJ do fornecedor
+    // e o que foi feito com cada produto, para a próxima nota já vir preenchida.
+    if (input.accessKey) {
+      await run(db, "UPDATE purchases SET access_key = ? WHERE id = ?", [input.accessKey, purchaseId]);
+    }
+    const document = input.supplierDocument?.replace(/\D/g, "");
+    if (document) {
+      await run(db, "UPDATE suppliers SET document = ? WHERE id = ? AND (document IS NULL OR document = '')", [document, input.supplierId]);
+      const remember = async (source: InvoiceSource, line: PurchaseLineInput | null) => {
+        const destination = source.destination;
+        const factor = destination === "inventory" && line && source.qty > 0 ? line.quantity / source.qty : 1;
+        await run(
+          db,
+          `INSERT INTO invoice_product_links (supplier_document, product_key, description, destination, item_id, movement_type_id, financial_description, qty_factor, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, agora_texto())
+           ON CONFLICT (supplier_document, product_key) DO UPDATE SET description = EXCLUDED.description, destination = EXCLUDED.destination,
+             item_id = EXCLUDED.item_id, movement_type_id = EXCLUDED.movement_type_id, financial_description = EXCLUDED.financial_description,
+             qty_factor = EXCLUDED.qty_factor, updated_at = agora_texto()`,
+          [
+            document,
+            source.key,
+            source.description,
+            destination,
+            destination === "inventory" ? line?.itemId || null : null,
+            destination === "financial" || destination === "personal" ? line?.movementTypeId || null : null,
+            destination === "financial" || destination === "personal" ? line?.description?.trim() || null : null,
+            factor > 0 && Number.isFinite(factor) ? factor : 1,
+          ],
+        );
+      };
+      for (const [index, source] of (input.sources || []).entries()) {
+        if (source) await remember(source, input.lines[index] || null);
+      }
+      for (const source of input.skipped || []) await remember({ ...source, destination: "skip" }, null);
     }
 
     return purchaseId;
